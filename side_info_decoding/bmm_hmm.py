@@ -1,6 +1,6 @@
-"Code for different versions of Beta mixture model + hidden Markov model (BMM-HMM)"
-import os
+"Code for different versions of Beta mixture model + hidden Markov model (BMM-HMM)."
 import numpy as np
+import math
 from math import log
 from scipy import stats
 from scipy.special import logsumexp 
@@ -474,7 +474,8 @@ class BMM_HMM(object):
             tau[yk] = num - denom
         return tau
 
-    def update(self, d, cutoff):
+    def update(self, d):
+        cutoff = self.tol
         increase = cutoff + 1
         while (increase > cutoff):
             old_params = (self.pi, self.a, self.phi, self.beta_a, self.beta_b)
@@ -487,7 +488,7 @@ class BMM_HMM(object):
             self.beta_b = new_params[4]
             after = self.forward_probability(self.forward(d))
             increase = after - before
-            print("Negative log-likelihood:", after)
+            print("log-likelihood:", after)
         
         if increase < 0:
             self.pi = old_params[0]
@@ -510,17 +511,16 @@ class Oracle_BMM_HMM(BMM_HMM):
             tol=1e-1
     ):
         super().__init__(
-                self, 
-                d=d, 
-                init_pi=init_pi, 
-                init_a=init_a, 
-                init_phi=init_phi, 
-                init_beta_a=init_beta_a, 
-                init_beta_b=init_beta_b,
-                tol=tol
+                d, 
+                init_pi, 
+                init_a, 
+                init_phi, 
+                init_beta_a, 
+                init_beta_b,
+                tol
             )
         
-    def update(self, d, cutoff):
+    def update(self, d):
         "No need to update BMM-HMM if the oracle solutions are known."
         pass
         
@@ -534,17 +534,21 @@ class Constrained_BMM_HMM(BMM_HMM):
             init_phi, 
             init_beta_a, 
             init_beta_b,
+            pi_prior,
+            a_prior,
+            phi_prior,
+            beta_a_prior,
+            beta_b_prior,
             tol=1e-1
     ):
         super().__init__(
-                self, 
-                d=d, 
-                init_pi=init_pi, 
-                init_a=init_a, 
-                init_phi=init_phi, 
-                init_beta_a=init_beta_a, 
-                init_beta_b=init_beta_b,
-                tol=tol
+                d, 
+                init_pi, 
+                init_a, 
+                init_phi, 
+                init_beta_a, 
+                init_beta_b,
+                tol
             )
         self.pi_prior = pi_prior
         self.a_prior = a_prior
