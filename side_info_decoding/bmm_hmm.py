@@ -474,8 +474,7 @@ class BMM_HMM(object):
             tau[yk] = num - denom
         return tau
 
-    def update(self, d):
-        cutoff = self.tol
+    def update(self, d, cutoff=1e-1):
         increase = cutoff + 1
         while (increase > cutoff):
             old_params = (self.pi, self.a, self.phi, self.beta_a, self.beta_b)
