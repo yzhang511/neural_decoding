@@ -1,0 +1,241 @@
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from scipy.stats import pearsonr
+from sklearn.metrics import accuracy_score, roc_auc_score, r2_score
+from side_info_decoding.utils import sliding_window_over_trials
+
+
+
+class Reduced_Rank_Model(nn.Module):
+    """
+    reduced rank logistic regression.
+    """
+    def __init__(
+        self, 
+        n_units, 
+        n_t_bins, 
+        rank, 
+        half_window_size
+    ):
+        super(Reduced_Rank_Model, self).__init__()
+        self.n_units = n_units
+        self.n_t_bins = n_t_bins
+        self.rank = rank
+        self.window_size = 2*half_window_size+1
+        
+        self.U = nn.Parameter(torch.randn(self.n_units, self.rank))
+        self.V = nn.Parameter(torch.randn(self.rank, self.n_t_bins, self.window_size))
+        self.intercept = nn.Parameter(torch.randn((1,)))
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, X):
+        n_trials = len(X)
+        self.Beta = torch.einsum("cr,rtd->ctd", self.U, self.V)
+        out = torch.einsum("ctd,kctd->k", self.Beta, X)
+        out += self.intercept * torch.ones(n_trials)
+        out = self.sigmoid(out)
+        return out, self.U, self.V
+    
+    
+
+class Multi_Task_Reduced_Rank_Model(nn.Module):
+    "multi-task version of reduced-rank models."
+    def __init__(
+        self, 
+        n_tasks,
+        n_units, 
+        n_t_bins, 
+        rank, 
+        half_window_size
+    ):
+        super(Multi_Task_Reduced_Rank_Model, self).__init__()
+        self.n_tasks = n_tasks
+        self.n_units = n_units
+        self.n_t_bins = n_t_bins
+        self.rank = rank
+        self.half_window_size = half_window_size
+        self.window_size = 2*half_window_size+1
+        self.Us = nn.ParameterList(
+            [nn.Parameter(torch.randn(self.n_units[i], self.rank)) for i in range(self.n_tasks)]
+        )
+        self.V = nn.Parameter(
+            torch.randn(self.rank, self.n_t_bins, self.window_size)
+        ) 
+        self.intercepts = nn.ParameterList(
+            [nn.Parameter(torch.randn(1,)) for i in range(self.n_tasks)]
+        )
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, X_lst):
+        out_lst = []
+        for task_idx in range(self.n_tasks):
+            X = X_lst[task_idx]
+            n_trials, n_units, n_t_bins, _ = X.shape
+            self.Beta = torch.einsum("cr,rtd->ctd", self.Us[task_idx], self.V)
+            out = torch.einsum("ctd,kctd->k", self.Beta, X)
+            out += self.intercepts[task_idx] * torch.ones(n_trials)
+            out = self.sigmoid(out)
+            out_lst.append(out)
+        return out_lst, self.Us, self.V
+
+
+def train_reduced_rank(
+    model,
+    train_dataset,
+    test_dataset,
+    loss_function=nn.BCELoss(),
+    learning_rate=1e-3,
+    weight_decay=1e-3,
+    n_epochs=5000,
+):
+    """
+    train reduced rank model.
+    """
+    train_X, train_Y = train_dataset
+    test_X, test_Y = test_dataset
+    
+    optimizer = optim.Adam(
+        model.parameters(), 
+        lr=learning_rate, 
+        weight_decay=weight_decay
+    )
+    print_every_epochs = n_epochs//10
+
+    # model training
+    train_losses = []
+    for epoch in range(n_epochs):
+        optimizer.zero_grad()
+        
+        train_prob, _, _ = model(train_X)
+        loss = loss_function(train_prob, train_Y)
+
+        loss.backward()
+        optimizer.step()
+        
+        train_losses.append(loss.detach().numpy())
+        if (epoch + 1) % print_every_epochs == 0:
+            print(f"Epoch [{epoch+1}/{n_epochs}], Loss: {loss.item()}")
+
+    return model, train_losses
+
+
+def train_multi_task(
+    model,
+    train_dataset,
+    test_dataset,
+    loss_function=nn.BCELoss(),
+    learning_rate=1e-3,
+    weight_decay=1e-3,
+    n_epochs=5000,
+):
+    """
+    train multi-task reduced rank model.
+    """
+    train_X, train_Y = train_dataset
+    test_X, test_Y = test_dataset
+    n_tasks = len(train_X)
+    
+    optimizer = optim.Adam(
+        model.parameters(), 
+        lr=learning_rate, 
+        weight_decay=weight_decay
+    )
+    print_every_epochs = n_epochs//10
+
+    # model training
+    train_losses = []
+    for epoch in range(n_epochs):
+        optimizer.zero_grad()
+        
+        train_prob, _, _ = model(train_X)
+        losses = torch.zeros((n_tasks,))
+        for task_idx in range(n_tasks):
+            losses[task_idx] = loss_function(train_prob[task_idx], train_Y[task_idx])
+        loss = losses.mean()
+
+        loss.backward()
+        optimizer.step()
+        
+        train_losses.append(losses.detach().numpy())
+        if (epoch + 1) % print_every_epochs == 0:
+            print(f"Epoch [{epoch+1}/{n_epochs}], Loss: {loss.item()}")
+
+    return model, train_losses
+    
+    
+    
+def model_eval(
+    model, 
+    train_dataset,
+    test_dataset,
+    model_type="reduced_rank", 
+    behavior="choice"):
+    
+    train_X, train_Y = train_dataset
+    test_X, test_Y = test_dataset
+    n_tasks = len(train_X)
+    
+    with torch.no_grad():
+        train_prob, train_U, train_V = model(train_X)
+        test_prob, test_U, test_V = model(test_X)
+        
+        if model_type=="reduced_rank":
+            test_U = test_U.detach().numpy()
+            test_V = test_V.detach().numpy()
+            
+            if behavior=="choice":
+                train_pred = np.array(train_prob >= 0.5) * 1.
+                test_pred = np.array(test_prob >= 0.5) * 1.
+                train_acc = accuracy_score(train_Y, train_pred)
+                test_acc = accuracy_score(test_Y, test_pred)
+                try:
+                    train_auc = roc_auc_score(train_Y, train_prob)
+                    test_auc = roc_auc_score(test_Y, test_prob)
+                except:
+                    train_auc = np.nan
+                    test_auc = np.nan
+                print(f"train accuracy: {train_acc:.3f} auc: {test_acc:.3f}")
+                print(f"test accuracy: {test_acc:.3f} auc: {test_auc:.3f}")
+                test_metrics = [test_acc, test_auc]
+            elif behavior=="prior":
+                train_r2 = r2_score(train_Y, train_prob)
+                test_r2 = r2_score(test_Y, test_prob)
+                train_corr = pearsonr(train_Y, train_prob)[0]
+                test_corr = pearsonr(test_Y, test_prob)[0]
+                print(f"train r2: {train_r2:.3f} corr: {train_corr:.3f}")
+                print(f"test r2: {test_r2:.3f} corr: {test_corr:.3f}")
+                test_metrics = [test_r2, test_corr]
+                
+        elif model_type=="multi_task":
+            test_U = [U.detach().numpy() for U in test_U]
+            test_V = test_V.detach().numpy()
+            
+            test_metrics = []
+            for task_idx in range(n_tasks):
+                train_pred = np.array(train_prob[task_idx] >= 0.5) * 1.
+                test_pred = np.array(test_prob[task_idx] >= 0.5) * 1.
+                if behavior=="choice":
+                    train_acc = accuracy_score(train_Y[task_idx], train_pred)
+                    test_acc = accuracy_score(test_Y[task_idx], test_pred)
+                    try:
+                        train_auc = roc_auc_score(train_Y[task_idx], train_prob[task_idx])
+                        test_auc = roc_auc_score(test_Y[task_idx], test_prob[task_idx])
+                    except:
+                        train_auc = np.nan
+                        test_auc = np.nan
+                    print(f"task {task_idx} train accuracy: {train_acc:.3f} auc: {train_auc:.3f}")
+                    print(f"task {task_idx} test accuracy: {test_acc:.3f} auc: {test_auc:.3f}")
+                    test_metrics.append([test_acc, test_auc])
+                elif behavior=="prior":
+                    train_r2 = r2_score(train_Y[task_idx], train_prob[task_idx])
+                    test_r2 = r2_score(test_Y[task_idx], test_prob[task_idx])
+                    train_corr = pearsonr(train_Y[task_idx], train_prob[task_idx])[0]
+                    test_corr = pearsonr(test_Y[task_idx], test_prob[task_idx])[0]
+                    print(f"task {task_idx} train r2: {train_r2:.3f} corr: {train_corr:.3f}")
+                    print(f"task {task_idx} test r2: {test_r2:.3f} corr: {test_corr:.3f}")
+                    test_metrics.append([test_r2, test_corr])
+                    
+        return test_U, test_V, test_metrics
+    
