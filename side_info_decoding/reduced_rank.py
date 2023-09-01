@@ -7,8 +7,35 @@ from sklearn.metrics import accuracy_score, roc_auc_score, r2_score
 from side_info_decoding.utils import sliding_window_over_trials
 
 
+class Full_Rank_Model(nn.Module):
+    """
+    full rank logistic regression.
+    """
+    def __init__(
+        self, 
+        n_units, 
+        n_t_bins, 
+        half_window_size
+    ):
+        super(Full_Rank_Model, self).__init__()
+        self.n_units = n_units
+        self.n_t_bins = n_t_bins
+        self.window_size = 2*half_window_size+1
+        self.Beta = nn.Parameter(torch.randn(self.n_units, self.n_t_bins, self.window_size))
+        self.intercept = nn.Parameter(torch.randn((1,)))
+        self.sigmoid = nn.Sigmoid()
+        self.task_type = "single_task"
+        self.model_type = "full_rank"
 
-class Reduced_Rank_Model(nn.Module):
+    def forward(self, X):
+        n_trials = len(X)
+        out = torch.einsum("ctd,kctd->k", self.Beta, X)
+        out += self.intercept * torch.ones(n_trials)
+        out = self.sigmoid(out)
+        return out, self.Beta
+
+
+class Reduced_Rank_Model(Full_Rank_Model):
     """
     reduced rank logistic regression.
     """
@@ -19,21 +46,22 @@ class Reduced_Rank_Model(nn.Module):
         rank, 
         half_window_size
     ):
-        super(Reduced_Rank_Model, self).__init__()
-        self.n_units = n_units
-        self.n_t_bins = n_t_bins
+        super().__init__(
+            n_units, 
+            n_t_bins, 
+            half_window_size
+        )
         self.rank = rank
-        self.window_size = 2*half_window_size+1
-        
         self.U = nn.Parameter(torch.randn(self.n_units, self.rank))
         self.V = nn.Parameter(torch.randn(self.rank, self.n_t_bins, self.window_size))
-        self.intercept = nn.Parameter(torch.randn((1,)))
-        self.sigmoid = nn.Sigmoid()
+        self.task_type = "single_task"
+        self.model_type = "reduced_rank"
+        self.Beta = None
 
     def forward(self, X):
         n_trials = len(X)
-        self.Beta = torch.einsum("cr,rtd->ctd", self.U, self.V)
-        out = torch.einsum("ctd,kctd->k", self.Beta, X)
+        self.reduced_Beta = torch.einsum("cr,rtd->ctd", self.U, self.V)
+        out = torch.einsum("ctd,kctd->k", self.reduced_Beta, X)
         out += self.intercept * torch.ones(n_trials)
         out = self.sigmoid(out)
         return out, self.U, self.V
@@ -67,6 +95,8 @@ class Multi_Task_Reduced_Rank_Model(nn.Module):
             [nn.Parameter(torch.randn(1,)) for i in range(self.n_tasks)]
         )
         self.sigmoid = nn.Sigmoid()
+        self.task_type = "multi_task"
+        self.model_type = "reduced_rank"
 
     def forward(self, X_lst):
         out_lst = []
@@ -81,7 +111,7 @@ class Multi_Task_Reduced_Rank_Model(nn.Module):
         return out_lst, self.Us, self.V
 
 
-def train_reduced_rank(
+def train_single_task(
     model,
     train_dataset,
     test_dataset,
@@ -108,7 +138,10 @@ def train_reduced_rank(
     for epoch in range(n_epochs):
         optimizer.zero_grad()
         
-        train_prob, _, _ = model(train_X)
+        if model.model_type == "reduced_rank":
+            train_prob, _, _ = model(train_X)
+        else:
+            train_prob, _ = model(train_X)
         loss = loss_function(train_prob, train_Y)
 
         loss.backward()
@@ -170,20 +203,26 @@ def model_eval(
     model, 
     train_dataset,
     test_dataset,
-    model_type="reduced_rank", 
-    behavior="choice"):
+    behavior="choice"
+):
     
     train_X, train_Y = train_dataset
     test_X, test_Y = test_dataset
     n_tasks = len(train_X)
     
     with torch.no_grad():
-        train_prob, train_U, train_V = model(train_X)
-        test_prob, test_U, test_V = model(test_X)
         
-        if model_type=="reduced_rank":
-            test_U = test_U.detach().numpy()
-            test_V = test_V.detach().numpy()
+        if model.task_type == "single_task":
+            
+            if model.model_type == "full_rank":
+                train_prob, train_Beta = model(train_X)
+                test_prob, test_Beta = model(test_X)
+                test_Beta = test_Beta.detach().numpy()
+            else:
+                train_prob, train_U, train_V = model(train_X)
+                test_prob, test_U, test_V = model(test_X)
+                test_U = test_U.detach().numpy()
+                test_V = test_V.detach().numpy()
             
             if behavior=="choice":
                 train_pred = np.array(train_prob >= 0.5) * 1.
@@ -208,7 +247,14 @@ def model_eval(
                 print(f"test r2: {test_r2:.3f} corr: {test_corr:.3f}")
                 test_metrics = [test_r2, test_corr]
                 
-        elif model_type=="multi_task":
+            if model.model_type == "full_rank":  
+                return test_Beta, test_metrics
+            else:
+                return test_U, test_V, test_metrics
+                
+        elif model.task_type == "multi_task":
+            train_prob, train_U, train_V = model(train_X)
+            test_prob, test_U, test_V = model(test_X)
             test_U = [U.detach().numpy() for U in test_U]
             test_V = test_V.detach().numpy()
             
@@ -236,6 +282,5 @@ def model_eval(
                     print(f"task {task_idx} train r2: {train_r2:.3f} corr: {train_corr:.3f}")
                     print(f"task {task_idx} test r2: {test_r2:.3f} corr: {test_corr:.3f}")
                     test_metrics.append([test_r2, test_corr])
-                    
-        return test_U, test_V, test_metrics
+            return test_U, test_V, test_metrics
     
