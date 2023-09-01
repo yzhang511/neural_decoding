@@ -66,8 +66,57 @@ class Reduced_Rank_Model(Full_Rank_Model):
         out = self.sigmoid(out)
         return out, self.U, self.V
     
-    
+# TO DO: check if this model makes sense; if not, remove it    
+class Multi_Task_Full_Rank_Model(nn.Module):
+    """
+    multi-task version of full-rank models using soft sharing (l2 regularization).
+    ref: https://avivnavon.github.io/blog/parameter-sharing-in-deep-learning/
+    """
+    def __init__(
+        self, 
+        n_tasks,
+        n_units, 
+        n_t_bins, 
+        half_window_size,
+        soft_loss_penalty=1e-1
+    ):
+        super(Multi_Task_Full_Rank_Model, self).__init__()
+        self.n_tasks = n_tasks
+        self.n_units = n_units
+        self.n_t_bins = n_t_bins
+        self.half_window_size = half_window_size
+        self.window_size = 2*half_window_size+1
+        self.soft_loss_penalty = soft_loss_penalty
+        self.Betas = nn.ParameterList(
+            [nn.Parameter(torch.randn(self.n_units[i], self.n_t_bins, self.window_size)) for i in range(self.n_tasks)]
+        )
+        self.intercepts = nn.ParameterList(
+            [nn.Parameter(torch.randn(1,)) for i in range(self.n_tasks)]
+        )
+        self.sigmoid = nn.Sigmoid()
+        self.task_type = "multi_task"
+        self.model_type = "full_rank"
 
+    def forward(self, X_lst):
+        out_lst = []
+        for task_idx in range(self.n_tasks):
+            X = X_lst[task_idx]
+            n_trials, n_units, n_t_bins, _ = X.shape
+            out = torch.einsum("ctd,kctd->k", self.Betas[task_idx], X)
+            out += self.intercepts[task_idx] * torch.ones(n_trials)
+            out = self.sigmoid(out)
+            out_lst.append(out)
+        return out_lst, self.Betas
+    
+    def soft_loss(self):
+        soft_sharing_loss = torch.zeros(self.n_t_bins)
+        for t_bin_idx in range(self.n_t_bins):
+            soft_sharing_loss[t_bin_idx] = self.soft_loss_penalty * torch.norm(
+                torch.vstack([self.Betas[task_idx][:,t_bin_idx] for task_idx in range(self.n_tasks)]), p='fro'
+            )
+        return soft_sharing_loss.mean()
+    
+    
 class Multi_Task_Reduced_Rank_Model(nn.Module):
     "multi-task version of reduced-rank models."
     def __init__(
@@ -109,8 +158,8 @@ class Multi_Task_Reduced_Rank_Model(nn.Module):
             out = self.sigmoid(out)
             out_lst.append(out)
         return out_lst, self.Us, self.V
-
-
+    
+    
 def train_single_task(
     model,
     train_dataset,
@@ -182,11 +231,18 @@ def train_multi_task(
     for epoch in range(n_epochs):
         optimizer.zero_grad()
         
-        train_prob, _, _ = model(train_X)
+        if model.model_type == "reduced_rank":
+            train_prob, _, _ = model(train_X)
+        else:
+            train_prob, _ = model(train_X)
+            
         losses = torch.zeros((n_tasks,))
         for task_idx in range(n_tasks):
             losses[task_idx] = loss_function(train_prob[task_idx], train_Y[task_idx])
         loss = losses.mean()
+        
+        if model.model_type == "full_rank":
+            loss += model.soft_loss()
 
         loss.backward()
         optimizer.step()
@@ -247,16 +303,17 @@ def model_eval(
                 print(f"test r2: {test_r2:.3f} corr: {test_corr:.3f}")
                 test_metrics = [test_r2, test_corr]
                 
-            if model.model_type == "full_rank":  
-                return test_Beta, test_metrics
-            else:
-                return test_U, test_V, test_metrics
-                
         elif model.task_type == "multi_task":
-            train_prob, train_U, train_V = model(train_X)
-            test_prob, test_U, test_V = model(test_X)
-            test_U = [U.detach().numpy() for U in test_U]
-            test_V = test_V.detach().numpy()
+            
+            if model.model_type == "full_rank":
+                train_prob, train_Beta = model(train_X)
+                test_prob, test_Beta = model(test_X)
+                test_Beta = [Beta.detach().numpy() for Beta in test_Beta]
+            else:
+                train_prob, train_U, train_V = model(train_X)
+                test_prob, test_U, test_V = model(test_X)
+                test_U = [U.detach().numpy() for U in test_U]
+                test_V = test_V.detach().numpy()
             
             test_metrics = []
             for task_idx in range(n_tasks):
@@ -282,5 +339,10 @@ def model_eval(
                     print(f"task {task_idx} train r2: {train_r2:.3f} corr: {train_corr:.3f}")
                     print(f"task {task_idx} test r2: {test_r2:.3f} corr: {test_corr:.3f}")
                     test_metrics.append([test_r2, test_corr])
+                    
+            
+        if model.model_type == "full_rank":  
+            return test_Beta, test_metrics
+        else:
             return test_U, test_V, test_metrics
     
