@@ -15,7 +15,8 @@ def load_data_from_pids(
     brain_region,
     behavior="choice",
     data_type="all_ks",
-    n_t_bins = 30
+    n_t_bins=30,
+    prior_path=None
 ):
     X_dict, Y_dict = {}, {}
     for pid_idx in range(len(pids)):
@@ -23,7 +24,8 @@ def load_data_from_pids(
         ibl_data_loader = IBLDataLoader(
           pid,
           trial_length = 1.5,
-          n_t_bins = n_t_bins
+          n_t_bins = n_t_bins,
+          prior_path = prior_path
         )
         Y = ibl_data_loader.process_behaviors(behavior)
         Y_dict.update({pid: Y})

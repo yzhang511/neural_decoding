@@ -9,7 +9,7 @@ from side_info_decoding.utils import sliding_window_over_trials
 
 class Full_Rank_Model(nn.Module):
     """
-    full rank logistic regression.
+    full rank model.
     """
     def __init__(
         self, 
@@ -37,7 +37,7 @@ class Full_Rank_Model(nn.Module):
 
 class Reduced_Rank_Model(Full_Rank_Model):
     """
-    reduced rank logistic regression.
+    reduced rank model.
     """
     def __init__(
         self, 
@@ -342,7 +342,13 @@ def model_eval(
                     
             
         if model.model_type == "full_rank":  
-            return test_Beta, test_metrics
+            if behavior=="prior":
+                return test_Beta, test_metrics, test_prob
+            else:
+                return test_Beta, test_metrics
         else:
-            return test_U, test_V, test_metrics
+            if behavior=="prior":
+                return test_U, test_V, test_metrics, test_prob
+            else:
+                return test_U, test_V, test_metrics
     
