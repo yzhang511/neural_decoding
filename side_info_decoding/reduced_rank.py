@@ -340,15 +340,8 @@ def model_eval(
                     print(f"task {task_idx} test r2: {test_r2:.3f} corr: {test_corr:.3f}")
                     test_metrics.append([test_r2, test_corr])
                     
-            
         if model.model_type == "full_rank":  
-            if behavior=="prior":
-                return test_Beta, test_metrics, test_prob
-            else:
-                return test_Beta, test_metrics
+            return test_Beta, test_metrics, test_prob
         else:
-            if behavior=="prior":
-                return test_U, test_V, test_metrics, test_prob
-            else:
-                return test_U, test_V, test_metrics
+            return test_U, test_V, test_metrics, test_prob
     
