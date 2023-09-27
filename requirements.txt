@@ -4,3 +4,4 @@ matplotlib
 scikit-learn
 hmmlearn
 pymc3
+density_decoding @ git+https://github.com/yzhang511/density_decoding.git
