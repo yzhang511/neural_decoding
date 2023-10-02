@@ -16,16 +16,20 @@ def load_data_from_pids(
     behavior="choice",
     data_type="all_ks",
     n_t_bins=30,
-    prior_path=None
+    prior_path=None,
+    t_before=0.5,
+    t_after=1.5,
+    normalize_input=True
 ):
     X_dict, Y_dict = {}, {}
     for pid_idx in range(len(pids)):
         pid = pids[pid_idx]
         ibl_data_loader = IBLDataLoader(
           pid,
-          trial_length = 1.5,
           n_t_bins = n_t_bins,
-          prior_path = prior_path
+          prior_path = prior_path,
+          t_before=t_before,
+          t_after=t_after,
         )
         Y = ibl_data_loader.process_behaviors(behavior)
         Y_dict.update({pid: Y})
@@ -37,7 +41,12 @@ def load_data_from_pids(
             X = ibl_data_loader.load_thresholded_units(brain_region)
         else:
             raise TypeError("other neural data types are under development.")
-        X_dict.update({pid: normalize_data(X)})
+            
+        if normalize_input:
+            X_dict.update({pid: normalize_data(X)})
+        else:
+            X_dict.update({pid: X})
+            
     return X_dict, Y_dict
 
     
