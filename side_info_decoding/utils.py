@@ -17,6 +17,7 @@ def load_data_from_pids(
     data_type="all_ks",
     n_t_bins=30,
     prior_path=None,
+    align_time_type="stimulus",
     t_before=0.5,
     t_after=1.5,
     normalize_input=True
@@ -28,6 +29,7 @@ def load_data_from_pids(
           pid,
           n_t_bins = n_t_bins,
           prior_path = prior_path,
+          align_time_type=align_time_type,
           t_before=t_before,
           t_after=t_after,
         )
