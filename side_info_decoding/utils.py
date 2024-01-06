@@ -38,24 +38,24 @@ def load_data_from_pids(
               t_after=t_after,
               behavior_type=behavior
             )
+            
+            Y = ibl_data_loader.process_behaviors(behavior)
+            Y_dict.update({pid: Y})
+            if data_type == "all_ks":
+                X = ibl_data_loader.load_all_sorted_units(brain_region)
+            elif data_type == "good_ks":
+                X = ibl_data_loader.load_good_sorted_units(brain_region)
+            elif data_type == "thresholded":
+                X = ibl_data_loader.load_thresholded_units(brain_region)
+            else:
+                raise TypeError("other neural data types are under development.")
+
+            if normalize_input:
+                X_dict.update({pid: normalize_data(X)})
+            else:
+                X_dict.update({pid: X})
         except:
             continue
-            
-        Y = ibl_data_loader.process_behaviors(behavior)
-        Y_dict.update({pid: Y})
-        if data_type == "all_ks":
-            X = ibl_data_loader.load_all_sorted_units(brain_region)
-        elif data_type == "good_ks":
-            X = ibl_data_loader.load_good_sorted_units(brain_region)
-        elif data_type == "thresholded":
-            X = ibl_data_loader.load_thresholded_units(brain_region)
-        else:
-            raise TypeError("other neural data types are under development.")
-            
-        if normalize_input:
-            X_dict.update({pid: normalize_data(X)})
-        else:
-            X_dict.update({pid: X})
             
     return X_dict, Y_dict
 
