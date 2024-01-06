@@ -25,12 +25,10 @@ def load_data_from_pids(
     X_dict, Y_dict = {}, {}
     
     for pid_idx in range(len(pids)):
-        
-        pid = pids[pid_idx]
-        
+                
         try:
             ibl_data_loader = IBLDataLoader(
-              pid,
+              pids[pid_idx],
               n_t_bins = n_t_bins,
               prior_path = prior_path,
               align_time_type=align_time_type,
@@ -56,7 +54,7 @@ def load_data_from_pids(
                 X_dict.update({pid: X})
         except:
             continue
-            
+                        
     return X_dict, Y_dict
 
     
