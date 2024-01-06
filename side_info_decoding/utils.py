@@ -25,7 +25,9 @@ def load_data_from_pids(
     X_dict, Y_dict = {}, {}
     
     for pid_idx in range(len(pids)):
-                
+        
+        pid = pids[pid_idx]
+        
         try:
             ibl_data_loader = IBLDataLoader(
               pids[pid_idx],
