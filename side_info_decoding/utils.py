@@ -23,17 +23,24 @@ def load_data_from_pids(
     normalize_input=True
 ):
     X_dict, Y_dict = {}, {}
+    
     for pid_idx in range(len(pids)):
+        
         pid = pids[pid_idx]
-        ibl_data_loader = IBLDataLoader(
-          pid,
-          n_t_bins = n_t_bins,
-          prior_path = prior_path,
-          align_time_type=align_time_type,
-          t_before=t_before,
-          t_after=t_after,
-          behavior_type=behavior
-        )
+        
+        try:
+            ibl_data_loader = IBLDataLoader(
+              pid,
+              n_t_bins = n_t_bins,
+              prior_path = prior_path,
+              align_time_type=align_time_type,
+              t_before=t_before,
+              t_after=t_after,
+              behavior_type=behavior
+            )
+        except:
+            continue
+            
         Y = ibl_data_loader.process_behaviors(behavior)
         Y_dict.update({pid: Y})
         if data_type == "all_ks":
