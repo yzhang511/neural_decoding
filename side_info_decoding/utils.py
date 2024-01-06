@@ -32,6 +32,7 @@ def load_data_from_pids(
           align_time_type=align_time_type,
           t_before=t_before,
           t_after=t_after,
+          behavior_type=behavior
         )
         Y = ibl_data_loader.process_behaviors(behavior)
         Y_dict.update({pid: Y})
