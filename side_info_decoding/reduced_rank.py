@@ -50,8 +50,6 @@ class Reduced_Rank_Model(Full_Rank_Model):
             n_units, 
             n_t_bins, 
             half_window_size,
-            init_U,
-            init_V,
         )
         self.rank = rank
         self.U = nn.Parameter(torch.randn(self.n_units, self.rank))
