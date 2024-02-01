@@ -45,8 +45,6 @@ class Reduced_Rank_Model(Full_Rank_Model):
         n_t_bins, 
         rank, 
         half_window_size,
-        init_U=None,
-        init_V=None,
     ):
         super().__init__(
             n_units, 
@@ -56,14 +54,8 @@ class Reduced_Rank_Model(Full_Rank_Model):
             init_V,
         )
         self.rank = rank
-        if init_U is None:
-            self.U = nn.Parameter(torch.randn(self.n_units, self.rank))
-        else:
-            self.U = nn.Parameter(torch.tensor(init_U))
-        if init_V is None:
-            self.V = nn.Parameter(torch.randn(self.rank, self.n_t_bins, self.window_size))
-        else:
-            self.V = nn.Parameter(torch.tensor(init_V))
+        self.U = nn.Parameter(torch.randn(self.n_units, self.rank))
+        self.V = nn.Parameter(torch.randn(self.rank, self.n_t_bins, self.window_size))
         self.task_type = "single_task"
         self.model_type = "reduced_rank"
         self.Beta = None
@@ -136,8 +128,6 @@ class Multi_Task_Reduced_Rank_Model(nn.Module):
         n_t_bins, 
         rank, 
         half_window_size,
-        init_Us=None,
-        init_V=None
     ):
         super(Multi_Task_Reduced_Rank_Model, self).__init__()
         self.n_tasks = n_tasks
@@ -146,18 +136,12 @@ class Multi_Task_Reduced_Rank_Model(nn.Module):
         self.rank = rank
         self.half_window_size = half_window_size
         self.window_size = 2*half_window_size+1
-        if init_Us is None:
-            self.Us = nn.ParameterList(
-                [nn.Parameter(torch.randn(self.n_units[i], self.rank)) for i in range(self.n_tasks)]
-            )
-        else:
-            self.Us = nn.ParameterList([torch.tensor(init_Us[pid_idx]) for pid_idx in range(n_tasks)])
-        if init_V is None:
-            self.V = nn.Parameter(
-                torch.randn(self.rank, self.n_t_bins, self.window_size)
-            ) 
-        else:
-            self.V = nn.Parameter(torch.tensor(init_V))
+        self.Us = nn.ParameterList(
+            [nn.Parameter(torch.randn(self.n_units[i], self.rank)) for i in range(self.n_tasks)]
+        )
+        self.V = nn.Parameter(
+            torch.randn(self.rank, self.n_t_bins, self.window_size)
+        ) 
         self.intercepts = nn.ParameterList(
             [nn.Parameter(torch.randn(1,)) for i in range(self.n_tasks)]
         )
