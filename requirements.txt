@@ -1,3 +1,15 @@
+numpy
+pandas
+tqdm
+matplotlib
+seaborn
+scikit-learn
+scipy
+torch
+lightning
+ONE-api
+iblutil
+iblatlas
+ibllib
 hmmlearn
 pymc3
-density_decoding @ git+https://github.com/yzhang511/density_decoding.git
