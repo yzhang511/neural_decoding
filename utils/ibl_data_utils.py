@@ -1,3 +1,4 @@
+import os 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -711,4 +712,29 @@ def prepare_data(one, eid, bwm_df, params):
     }
 
     return neural_dict, behave_dict, metadata
+
+
+def save_data(eid, binned_spikes, binned_behaviors, save_path='./data/'):
+    
+    os.makedirs(save_path, exist_ok=True)
+    
+    beh_names = ['wheel-speed', 'right-whisker-motion-energy', 'left-pupil-diameter']
+    
+    target_mask = [1] * len(binned_spikes)
+    for beh_name in beh_names:
+    beh_mask = [1 if trial is not None else 0 for trial in binned_behaviors[beh_name]]
+    target_mask = target_mask and beh_mask
+    
+    del_idxs = np.argwhere(np.array(target_mask) == 0)
+    
+    for beh_name in beh_names:
+        binned_behaviors[beh_name] = np.delete(binned_behaviors[beh_name], del_idxs)
+  
+    np.savez_compressed(
+        Path(save_path)/f'{eid}.npz', 
+        spike_data=binned_spikes[target_mask], 
+        wheel_speed=np.array([y for y in binned_behaviors['wheel-speed']], dtype=float),
+        motion_energy=np.array([y for y in binned_behaviors['right-whisker-motion-energy']], dtype=float),
+        pupil_diameter=np.array([y for y in binned_behaviors['left-pupil-diameter']], dtype=float),
+    )
     
