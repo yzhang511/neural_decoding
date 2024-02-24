@@ -727,14 +727,16 @@ def save_data(eid, binned_spikes, binned_behaviors, save_path='./data/'):
     
     del_idxs = np.argwhere(np.array(target_mask) == 0)
     
-    for beh_name in beh_names:
-        binned_behaviors[beh_name] = np.delete(binned_behaviors[beh_name], del_idxs)
-  
+    spike_data = np.delete(binned_spikes, del_idxs, axis=0)
+    wheel_speed = np.delete(binned_behaviors['wheel-speed'], del_idxs)
+    motion_energy = np.delete(binned_behaviors['right-whisker-motion-energy'], del_idxs)
+    pupil_diameter = np.delete(binned_behaviors['left-pupil-diameter'], del_idxs)
+    
     np.savez_compressed(
-        Path(save_path)/f'{eid}.npz', 
-        spike_data=binned_spikes[target_mask], 
-        wheel_speed=np.array([y for y in binned_behaviors['wheel-speed']], dtype=float),
-        motion_energy=np.array([y for y in binned_behaviors['right-whisker-motion-energy']], dtype=float),
-        pupil_diameter=np.array([y for y in binned_behaviors['left-pupil-diameter']], dtype=float),
+      Path(save_path)/f'{eid}.npz',
+      spike_data=spike_data,
+      wheel_speed=np.array([y for y in wheel_speed], dtype=float),
+      motion_energy=np.array([y for y in motion_energy], dtype=float),
+      pupil_diameter=np.array([y for y in pupil_diameter], dtype=float),
     )
     
