@@ -717,26 +717,88 @@ def prepare_data(one, eid, bwm_df, params):
 def save_data(eid, binned_spikes, binned_behaviors, save_path='./data/'):
     
     os.makedirs(save_path, exist_ok=True)
-    
+
     beh_names = ['wheel-speed', 'right-whisker-motion-energy', 'left-pupil-diameter']
-    
+
     target_mask = [1] * len(binned_spikes)
     for beh_name in beh_names:
-    beh_mask = [1 if trial is not None else 0 for trial in binned_behaviors[beh_name]]
+        beh_mask = [1 if trial is not None else 0 for trial in binned_behaviors[beh_name]]
     target_mask = target_mask and beh_mask
-    
+
     del_idxs = np.argwhere(np.array(target_mask) == 0)
-    
+
     spike_data = np.delete(binned_spikes, del_idxs, axis=0)
     wheel_speed = np.delete(binned_behaviors['wheel-speed'], del_idxs)
     motion_energy = np.delete(binned_behaviors['right-whisker-motion-energy'], del_idxs)
     pupil_diameter = np.delete(binned_behaviors['left-pupil-diameter'], del_idxs)
-    
+
     np.savez_compressed(
       Path(save_path)/f'{eid}.npz',
       spike_data=spike_data,
-      wheel_speed=np.array([y for y in wheel_speed], dtype=float),
-      motion_energy=np.array([y for y in motion_energy], dtype=float),
-      pupil_diameter=np.array([y for y in pupil_diameter], dtype=float),
+      wheel_speed=np.array([y for y in wheel_speed], dtype=float).reshape((spike_data.shape[0], -1)),
+      motion_energy=np.array([y for y in motion_energy], dtype=float).reshape((spike_data.shape[0], -1)),
+      pupil_diameter=np.array([y for y in pupil_diameter], dtype=float).reshape((spike_data.shape[0], -1)),
     )
+    
+    
+def save_imposter_sessions(data_dir, imposter_dir, n_samples=10):
+    
+    data_dir = Path(data_dir)
+    imposter_dir = Path(imposter_dir)
+    os.makedirs(imposter_dir, exist_ok=True)
+
+    eids = [fname.split('.')[0] for fname in os.listdir(data_dir) if fname.endswith('npz')]
+    
+    # create a pool of sessions to sample from
+    imposter_pool_dict = {}
+    for eid in eids:
+        
+        imposter_pool_dict[eid] = {}
+        file_path = Path(data_dir)/f'{eid}.npz'
+        data = np.load(file_path, allow_pickle=True)
+        imposter_pool_dict[eid].update({
+          'n_trials': len(data['spike_data']),
+          'spike_data': data['spike_data'],
+          'wheel_speed': data['wheel_speed'],
+          'motion_energy': data['motion_energy'],
+          'pupil_diameter': data['pupil_diameter']
+        })
+    
+    # create n_samples imposter sessions for each eid
+    for eid_idx, eid in enumerate(eids):
+        
+        save_path = imposter_dir/eid
+        os.makedirs(save_path, exist_ok=True)
+        
+        n_imposters = len(eids)-1
+        spike_data = imposter_pool_dict[eid]['spike_data']
+        wheel_speed = imposter_pool_dict[eid]['wheel_speed']
+        motion_energy = imposter_pool_dict[eid]['motion_energy']
+        pupil_diameter = imposter_pool_dict[eid]['pupil_diameter']
+        chunk_size = imposter_pool_dict[eid]['n_trials'] // n_imposters
+
+        for sample_idx in range(n_samples):
+            
+            for imposter_idx, imposter_eid in enumerate(np.delete(eids, eid_idx)):
+                
+                mask = np.random.choice(
+                    np.arange(imposter_pool_dict[imposter_eid]['n_trials']), chunk_size, replace=False
+                )
+                wheel_speed[imposter_idx*chunk_size:(imposter_idx+1)*chunk_size] = \
+                imposter_pool_dict[imposter_eid]['wheel_speed'][mask]
+                motion_energy[imposter_idx*chunk_size:(imposter_idx+1)*chunk_size] = \
+                imposter_pool_dict[imposter_eid]['motion_energy'][mask]
+                pupil_diameter[imposter_idx*chunk_size:(imposter_idx+1)*chunk_size] = \
+                imposter_pool_dict[imposter_eid]['pupil_diameter'][mask]
+
+            np.savez_compressed(
+                Path(save_path)/f'imposter_{sample_idx}.npz',
+                spike_data=spike_data,
+                wheel_speed=wheel_speed,
+                motion_energy=motion_energy,
+                pupil_diameter=pupil_diameter,
+            )
+            
+        print(f"Created {n_samples} imposter sessions for eid: {eid}")
+    
     
