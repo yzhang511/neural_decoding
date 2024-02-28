@@ -6,10 +6,12 @@ seaborn
 scikit-learn
 scipy
 torch
-lightning
+pytorch_lightning
+torchvision
+ray[tune]
 ONE-api
 iblutil
 iblatlas
-ibllib @ git+https://github.com/int-brain-lab/ibllib.git
+ibllib
 hmmlearn
 pymc3

@@ -1,5 +1,12 @@
+import numpy as np
+from matplotlib import pyplot as plt
+
+from sklearn.model_selection import GridSearchCV
+from sklearn.linear_model import Ridge
+from sklearn.metrics import r2_score
+
 import torch
-from lightning.pytorch import LightningModule, Trainer
+from lightning.pytorch import LightningModule
 from torchmetrics import R2Score
 from torch.nn import functional as F
 
@@ -64,14 +71,37 @@ class ReducedRankDecoder(BaselineDecoder):
         pred = torch.einsum('ntd,ktn->kd', self.B, x)
         pred += self.b
         return pred
+
+class MLPDecoder(BaselineDecoder):
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.hidden_size = config['mlp_hidden_size']
+
+        self.input_layer = torch.nn.Linear(self.n_units, self.hidden_size[0])
+
+        self.hidden = torch.nn.ModuleList()
+        for l in range(len(self.hidden_size)-1):
+            self.hidden.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
+
+        self.output_layer = torch.nn.Linear(self.hidden_size[-1], 1)
+        
+        self.double()
+
+    def forward(self, x):
+        x = self.input_layer(x)
+        for layer in self.hidden:
+            x = F.relu(layer(x))
+        pred = self.output_layer(x).squeeze()
+        return pred
     
     
 class LSTMDecoder(BaselineDecoder):
     def __init__(self, config):
         super().__init__(config)
 
-        self.hidden_size = config['hidden_size']
-        self.n_layers = config['n_layers']
+        self.hidden_size = config['lstm_hidden_size']
+        self.n_layers = config['lstm_n_layers']
         self.drop_out = config['drop_out']
 
         self.lstm = torch.nn.LSTM(
@@ -126,12 +156,12 @@ def eval_model(train, test, model, model_type='reduced-rank', plot=False):
         regr.fit(train_x.reshape((train_x.shape[0], -1)), train_y)
         test_pred = regr.predict(test_x.reshape((test_x.shape[0], -1)))
 
-    elif model_type in ['ridge', 'mlp']:
+    elif model_type == 'ridge':
         train_x, test_x = train_x.numpy(), test_x.numpy()
         model.fit(train_x.reshape((train_x.shape[0], -1)), train_y)
         test_pred = model.predict(test_x.reshape((test_x.shape[0], -1)))
-
-    elif model_type == 'lstm':
+        
+    elif model_type in ['mlp', 'lstm']:
         test_pred = model(test_x).detach().numpy()
 
     else:
