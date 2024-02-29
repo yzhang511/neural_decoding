@@ -7,6 +7,7 @@ from sklearn.metrics import r2_score
 
 import torch
 from lightning.pytorch import LightningModule
+from lightning.pytorch.callbacks import ModelCheckpoint
 from torchmetrics import R2Score
 from torch.nn import functional as F
 
@@ -30,6 +31,7 @@ class BaselineDecoder(LightningModule):
         x, y = batch
         pred = self(x)
         loss = F.mse_loss(pred, y)
+        self.log('loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     def validation_step(self, batch, batch_idx, print_str="val"):
