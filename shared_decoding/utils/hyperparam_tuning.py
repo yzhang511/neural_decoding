@@ -1,4 +1,5 @@
 import os
+import ray
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.train import RunConfig, ScalingConfig, CheckpointConfig
@@ -7,7 +8,7 @@ from ray.train.torch import TorchTrainer
 def tune_decoder(
     train_func, search_space,
     max_epochs=500, num_samples=10, use_gpu=False, num_workers=1, 
-    metric="val_loss", mode="min", 
+    metric="loss", mode="min", 
 ):
     
     if use_gpu:
