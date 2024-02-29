@@ -1,8 +1,12 @@
 import os 
+import sys
+import uuid
+from tqdm import *
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 from pathlib import Path
+import multiprocessing
+from functools import partial
 from scipy.interpolate import interp1d
 
 from iblutil.numerical import ismember, bincount2D
@@ -12,9 +16,16 @@ from iblatlas.regions import BrainRegions
 from brainbox.population.decode import get_spike_counts_in_bins
 
 
+def globalize(func):
+  def result(*args, **kwargs):
+    return func(*args, **kwargs)
+  result.__name__ = result.__qualname__ = uuid.uuid4().hex
+  setattr(sys.modules[result.__module__], result.__name__, result)
+  return result
+
+
 def load_spiking_data(one, pid, compute_metrics=False, qc=None, **kwargs):
     """
-    (Code adapted from: https://github.com/int-brain-lab/paper-brain-wide-map)
     Function to load the cluster information and spike trains for clusters that may or may not pass certain quality metrics.
 
     Parameters
@@ -38,30 +49,31 @@ def load_spiking_data(one, pid, compute_metrics=False, qc=None, **kwargs):
         Spike trains associated with clusters. Dictionary with keys ['depths', 'times', 'clusters', 'amps']
     selected_clusters: pandas.DataFrame
         Information of clusters for this pid 
+    sampling_freq: float
+        Sampling frequency of spiking data (action potential)
     """
     eid = kwargs.pop('eid', '')
     pname = kwargs.pop('pname', '')
     spike_loader = SpikeSortingLoader(pid=pid, one=one, eid=eid, pname=pname)
+    sampling_freq = spike_loader.raw_electrophysiology(band="ap", stream=True).fs
+    
     spikes, clusters, channels = spike_loader.load_spike_sorting()
     clusters_labeled = SpikeSortingLoader.merge_clusters(
         spikes, clusters, channels, compute_metrics=compute_metrics).to_df()
     if qc is None:
-        selected_clusters = clusters_labeled
+        return spikes, clusters_labeled, sampling_freq
     else:
         iok = clusters_labeled['label'] >= qc
         selected_clusters = clusters_labeled[iok]
-
-    spike_idx, ib = ismember(spikes['clusters'], selected_clusters.index)
-    selected_clusters.reset_index(drop=True, inplace=True)
-    selected_spikes = {k: v[spike_idx] for k, v in spikes.items()}
-    selected_spikes['clusters'] = selected_clusters.index[ib].astype(np.int32)
-
-    return selected_spikes, selected_clusters
+        spike_idx, ib = ismember(spikes['clusters'], selected_clusters.index)
+        selected_clusters.reset_index(drop=True, inplace=True)
+        selected_spikes = {k: v[spike_idx] for k, v in spikes.items()}
+        selected_spikes['clusters'] = selected_clusters.index[ib].astype(np.int32)
+        return selected_spikes, selected_clusters, sampling_freq
 
 
 def merge_probes(spikes_list, clusters_list):
     """
-    (Code adapted from: https://github.com/int-brain-lab/paper-brain-wide-map)
     Merge spikes and clusters information from several probes as if they were recorded from the same probe.
     This can be used to account for the fact that data from the probes recorded in the same session are not
     statistically independent as they have the same underlying behaviour.
@@ -92,11 +104,13 @@ def merge_probes(spikes_list, clusters_list):
     merged_spikes = []
     merged_clusters = []
     cluster_max = 0
+
     for clusters, spikes in zip(clusters_list, spikes_list):
         spikes['clusters'] += cluster_max
         cluster_max = clusters.index.max() + 1
         merged_spikes.append(spikes)
         merged_clusters.append(clusters)
+        
     merged_clusters = pd.concat(merged_clusters, ignore_index=True)
     merged_spikes = {k: np.concatenate([s[k] for s in merged_spikes]) for k in merged_spikes[0].keys()}
     # Sort spikes by spike time
@@ -110,7 +124,6 @@ def load_trials_and_mask(
         one, eid, min_rt=0.08, max_rt=2., nan_exclude='default', min_trial_len=None,
         max_trial_len=None, exclude_unbiased=False, exclude_nochoice=False, sess_loader=None):
     """
-    (Code adapted from: https://github.com/int-brain-lab/paper-brain-wide-map)
     Function to load all trials for a given session and create a mask to exclude all trials that have a reaction time
     shorter than min_rt or longer than max_rt or that have NaN for one of the specified events.
 
@@ -211,7 +224,6 @@ def list_brain_regions(neural_dict, **kwargs):
 
 def select_brain_regions(regressors, beryl_reg, region, **kwargs):
     """
-    (Code adapted from: https://github.com/int-brain-lab/paper-brain-wide-map)
     Select units based on brain region.
     """
     reg_mask = np.isin(beryl_reg, region)
@@ -219,10 +231,19 @@ def select_brain_regions(regressors, beryl_reg, region, **kwargs):
     return reg_clu_ids
 
 
-def get_spike_data_per_trial(times, clusters, interval_begs, interval_ends, interval_len, binsize):
+def create_intervals(start_time, end_time, interval_len):
+    interval_begs = np.arange(
+        start_time, end_time-interval_len, interval_len
+    )
+    interval_ends = np.arange(
+        start_time+interval_len, end_time, interval_len
+    )
+    return np.c_[interval_begs, interval_ends]
+
+
+def get_spike_data_per_interval(times, clusters, interval_begs, interval_ends, interval_len, binsize, n_workers=os.cpu_count()):
     """
-    (Code adapted from: https://github.com/int-brain-lab/paper-brain-wide-map)
-    Select spiking data for specified interval on each trial.
+    Select spiking data for specified interval in each recording.
 
     Parameters
     ----------
@@ -241,11 +262,11 @@ def get_spike_data_per_trial(times, clusters, interval_begs, interval_ends, inte
     Returns
     -------
     tuple
-        - (list): time in seconds for each trial; timepoints refer to the start/left edge of a bin
-        - (list): data for each trial of shape (n_clusters, n_bins)
+        - (list): time in seconds for each interval; timepoints refer to the start/left edge of a bin
+        - (list): data for each interval of shape (n_clusters, n_bins)
 
     """
-    n_trials = len(interval_begs)
+    n_intervals = len(interval_begs)
 
     # np.ceil because we want to make sure our bins contain all data
     n_bins = int(np.ceil(interval_len / binsize))
@@ -253,10 +274,11 @@ def get_spike_data_per_trial(times, clusters, interval_begs, interval_ends, inte
     cluster_ids = np.unique(clusters)
     n_clusters_in_region = len(cluster_ids)
 
-    binned_spikes = np.zeros((n_trials, n_clusters_in_region, n_bins))
-    spike_times_list = []
-    for tr, (t_beg, t_end) in enumerate(tqdm(zip(interval_begs, interval_ends), total=n_trials)):
-        # just get spikes for this region/trial
+    # This allows multiprocessing to work with nested functions
+    @globalize
+    def compute_spike_count(interval):
+        # We use interval_idx to track the interval order while working with p.imap_unordered()
+        interval_idx, t_beg, t_end = interval
         idxs_t = (times >= t_beg) & (times < t_end)
         times_curr = times[idxs_t]
         clust_curr = clusters[idxs_t]
@@ -274,17 +296,22 @@ def get_spike_data_per_trial(times, clusters, interval_begs, interval_ends, inte
                 times_curr, clust_curr, xbin=binsize, xlim=[t_beg, t_end])
             # find indices of clusters that returned spikes for this trial
             _, idxs_tmp, _ = np.intersect1d(cluster_ids, cluster_idxs, return_indices=True)
+        return binned_spikes_tmp[:, :n_bins], idxs_tmp, interval_idx
 
-        # update data block
-        binned_spikes[tr, idxs_tmp, :] += binned_spikes_tmp[:, :n_bins]
-        spike_times_list.append(t_idxs[:n_bins])
+    binned_spikes = np.zeros((n_intervals, n_clusters_in_region, n_bins))
+    with multiprocessing.Pool(processes=n_workers) as p:
+        intervals = list(zip(np.arange(n_intervals), interval_begs, interval_ends))
+        with tqdm(total=len(intervals)) as pbar:
+            for res in p.imap_unordered(compute_spike_count, intervals):
+                pbar.update()
+                binned_spikes[res[-1], res[1], :] += res[0]
+        pbar.close()
+        p.close()
+    return binned_spikes
 
-    return spike_times_list, binned_spikes
 
-
-def bin_spiking_data(reg_clu_ids, neural_df, trials_df, **kwargs):
+def bin_spiking_data(reg_clu_ids, neural_df, intervals=None, trials_df=None, n_workers=os.cpu_count(), **kwargs):
     """
-    (Code adapted from: https://github.com/int-brain-lab/paper-brain-wide-map)
     Format a single session-wide array of spikes into a list of trial-based arrays.
     The ordering of clusters used in the output are also returned.
 
@@ -294,6 +321,8 @@ def bin_spiking_data(reg_clu_ids, neural_df, trials_df, **kwargs):
         array of cluster ids for each spike
     neural_df : pd.DataFrame
         keys: 'spike_times', 'spike_clusters', 'cluster_regions', 'cluster_qc', 'cluster_df'
+    intervals : 
+        array of time intervals for each recording chunk including trials and non-trials
     trials_df : pd.DataFrame
         columns: 'choice', 'feedback', 'pLeft', 'firstMovement_times', 'stimOn_times',
         'feedback_times'
@@ -309,16 +338,27 @@ def bin_spiking_data(reg_clu_ids, neural_df, trials_df, **kwargs):
     Returns
     -------
     list
-        each element is a 2D numpy.ndarray for a single trial of shape (n_bins, n_clusters)
+        each element is a 2D numpy.ndarray for a single interval of shape (n_bins, n_clusters)
     array
         cluster ids that account for axis 1 of the above 2D arrays.
     """
 
-    # compute time intervals for each trial
-    intervals = np.vstack([
-        trials_df[kwargs['align_time']] + kwargs['time_window'][0],
-        trials_df[kwargs['align_time']] + kwargs['time_window'][1]
-    ]).T
+    if trials_df is not None:
+        # compute time intervals for each trial
+        intervals = np.vstack([
+            trials_df[kwargs['align_time']] + kwargs['time_window'][0],
+            trials_df[kwargs['align_time']] + kwargs['time_window'][1]
+        ]).T
+        chunk_len = kwargs['time_window'][1] - kwargs['time_window'][0]
+        interval_len = (
+            kwargs['time_window'][1] - kwargs['time_window'][0]
+        )
+    else:
+        assert intervals is not None, 'Require intervals to segment the recording into chunks including trials and non-trials.'
+        chunk_len = intervals[0,1] - intervals[0,0]
+        interval_len = (
+            intervals[0,1] - intervals[0,0]
+        )
 
     # subselect spikes for this region
     spikemask = np.isin(neural_df['spike_clusters'], reg_clu_ids)
@@ -326,37 +366,26 @@ def bin_spiking_data(reg_clu_ids, neural_df, trials_df, **kwargs):
     regclu = neural_df['spike_clusters'][spikemask]
     clusters_used_in_bins = np.unique(regclu)
 
-    # for each trial, put spiking data into a 2D array; collect trials in a list
-    trial_len = kwargs['time_window'][1] - kwargs['time_window'][0]
-    binsize = kwargs.get('binsize', trial_len)
-    # TODO: can likely combine get_spike_counts_in_bins and get_spike_data_per_trial
-    # added second condition in if statement if n_bins_lag is None, gives error otherwise (bensonb)
-    if trial_len / binsize == 1.0:
-        # one vector of neural activity per trial
+    binsize = kwargs.get('binsize', chunk_len)
+    
+    if chunk_len / binsize == 1.0:
+        # one vector of neural activity per interval
         binned, _ = get_spike_counts_in_bins(regspikes, regclu, intervals)
         binned = binned.T  # binned is a 2D array
         binned_list = [x[None, :] for x in binned]
-
     else:
-        # multiple vectors of neural activity per trial
-        # moved interval_len definintion into this condition so that when n_bins_lag is None it doesn't cause error
-        interval_len = (
-            kwargs['time_window'][1] - kwargs['time_window'][0]
-        )
-        spike_times_list, binned_array = get_spike_data_per_trial(
+        binned_array = get_spike_data_per_interval(
             regspikes, regclu,
             interval_begs=intervals[:, 0],
             interval_ends=intervals[:, 1],
             interval_len=interval_len,
-            binsize=kwargs['binsize'])
-        binned_list = [x.T for x in binned_array]
-
+            binsize=kwargs['binsize'],
+            n_workers=n_workers)
+        binned_list = [x.T for x in binned_array]   
     return np.array(binned_list), clusters_used_in_bins
-
-
+    
 def load_target_behavior(one, eid, target):
     """
-
     Parameters
     ----------
     target : str
@@ -482,10 +511,17 @@ def load_target_behavior(one, eid, target):
     return beh_dict
 
 
-def bin_behavior_data(target_times, target_vals, trials_df, allow_nans=False, **kwargs):
+def get_behavior_per_interval(
+    target_times, 
+    target_vals, 
+    intervals=None, 
+    trials_df=None, 
+    allow_nans=False, 
+    n_workers=os.cpu_count(), 
+    **kwargs
+):
     """
-    (Code adapted from: https://github.com/int-brain-lab/paper-brain-wide-map)
-    Format a single session-wide array of target data into a list of trial-based arrays.
+    Format a single session-wide array of target data into a list of interval-based arrays.
 
     Note: the bin size of the returned data will only be equal to the input `binsize` if that value
     evenly divides `align_interval`; for example if `align_interval=(0, 0.2)` and `binsize=0.10`,
@@ -498,6 +534,8 @@ def bin_behavior_data(target_times, target_vals, trials_df, allow_nans=False, **
         time in seconds for each sample
     target_vals : array-like
         data samples
+    intervals : 
+        array of time intervals for each recording chunk including trials and non-trials
     trials_df : pd.DataFrame
         requires a column that matches `align_event`
     align_event : str
@@ -508,85 +546,79 @@ def bin_behavior_data(target_times, target_vals, trials_df, allow_nans=False, **
     binsize : float
         size of individual bins in interval
     allow_nans : bool, optional
-        False to skip trials with >0 NaN values in target data
+        False to skip intervals with >0 NaN values in target data
 
     Returns
     -------
     tuple
-        - (list): time in seconds for each trial
-        - (list): data for each trial
-        - (array-like): mask of good trials (True) and bad trials (False)
+        - (list): time in seconds for each interval
+        - (list): data for each interval
+        - (array-like): mask of good intervals (True) and bad intervals (False)
 
     """
 
-    align_event = kwargs['align_time']
-    align_interval = kwargs['time_window']
     binsize = kwargs['binsize']
-
-    align_times = trials_df[align_event].values
-    interval_begs = align_times + align_interval[0]
-    interval_ends = align_times + align_interval[1]
+    align_interval = kwargs['time_window']
     interval_len = align_interval[1] - align_interval[0]
 
-    # split data by trial
+    if trials_df is not None:
+        align_event = kwargs['align_time']
+        align_times = trials_df[align_event].values
+        interval_begs = align_times + align_interval[0]
+        interval_ends = align_times + align_interval[1]
+    else:
+        assert intervals is not None, 'Require intervals to segment the recording into chunks including trials and non-trials.'
+        interval_begs, interval_ends = intervals.T
+
+    n_intervals = len(interval_begs)
+
     if np.all(np.isnan(interval_begs)) or np.all(np.isnan(interval_ends)):
         print('interval times all nan')
-        good_trial = np.nan * np.ones(interval_begs.shape[0])
+        good_interval = np.nan * np.ones(interval_begs.shape[0])
         target_times_list = []
         target_vals_list = []
-        return target_times_list, target_vals_list, good_trial
+        return target_times_list, target_vals_list, good_interval
 
     # np.ceil because we want to make sure our bins contain all data
     n_bins = int(np.ceil(interval_len / binsize))
 
-    # split data into trials
+    # split data into intervals
     idxs_beg = np.searchsorted(target_times, interval_begs, side='right')
     idxs_end = np.searchsorted(target_times, interval_ends, side='left')
     target_times_og_list = [target_times[ib:ie] for ib, ie in zip(idxs_beg, idxs_end)]
     target_vals_og_list = [target_vals[ib:ie] for ib, ie in zip(idxs_beg, idxs_end)]
 
     # interpolate and store
-    target_times_list = []
-    target_vals_list = []
-    good_trial = [None for _ in range(len(target_times_og_list))]
-    for i, (target_time, target_vals) in enumerate(zip(target_times_og_list, target_vals_og_list)):
+    target_times_list = [None for _ in range(len(target_times_og_list))]
+    target_vals_list = [None for _ in range(len(target_times_og_list))]
+    good_interval = [None for _ in range(len(target_times_og_list))]
+    skip_reasons = [None for _ in range(len(target_times_og_list))]
 
+    @globalize
+    def interpolate_behavior(target):
+        # We use interval_idx to track the interval order while working with p.imap_unordered()
+        interval_idx, target_time, target_vals = target
+
+        is_good_interval, x_interp, y_interp = False, None, None
+        
         if len(target_vals) == 0:
-            # print('target data not present on trial %i; skipping' % i)
-            good_trial[i] = False
-            target_times_list.append(None)
-            target_vals_list.append(None)
-            continue
+            skip_reason = 'target data not present'
+            return interval_idx, is_good_interval, x_interp, y_interp, skip_reason
         if np.sum(np.isnan(target_vals)) > 0 and not allow_nans:
-            # print('nans in target data on trial %i; skipping' % i)
-            good_trial[i] = False
-            target_times_list.append(None)
-            target_vals_list.append(None)
-            continue
-        if np.isnan(interval_begs[i]) or np.isnan(interval_ends[i]):
-            # print('bad trial interval data on trial %i; skipping' % i)
-            good_trial[i] = False
-            target_times_list.append(None)
-            target_vals_list.append(None)
-            continue
-        if np.abs(interval_begs[i] - target_time[0]) > binsize:
-            # print('target data starts too late on trial %i; skipping' % i)
-            good_trial[i] = False
-            target_times_list.append(None)
-            target_vals_list.append(None)
-            continue
-        if np.abs(interval_ends[i] - target_time[-1]) > binsize:
-            # print('target data ends too early on trial %i; skipping' % i)
-            good_trial[i] = False
-            target_times_list.append(None)
-            target_vals_list.append(None)
-            continue
+            skip_reason = 'nans in target data'
+            return interval_idx, is_good_interval, x_interp, y_interp, skip_reason
+        if np.isnan(interval_begs[interval_idx]) or np.isnan(interval_ends[interval_idx]):
+            skip_reason = 'bad interval data'
+            return interval_idx, is_good_interval, x_interp, y_interp, skip_reason
+        if np.abs(interval_begs[interval_idx] - target_time[0]) > binsize:
+            skip_reason = 'target data starts too late'
+            return interval_idx, is_good_interval, x_interp, y_interp, skip_reason
+        if np.abs(interval_ends[interval_idx] - target_time[-1]) > binsize:
+            skip_reason = 'target data ends too early'
+            return interval_idx, is_good_interval, x_interp, y_interp, skip_reason
 
-        # resample signal in desired bins
-        # using `interval_begs[i] + binsize` forces the interpolation to sample the continuous
-        # signal at the *end* (or right side) of each bin; this way the spikes in a given bin will
-        # fully precede the corresponding target sample for that same bin.
-        x_interp = np.linspace(interval_begs[i] + binsize, interval_ends[i], n_bins)
+        is_good_interval, skip_reason = True, None
+        x_interp = np.linspace(interval_begs[interval_idx] + binsize, interval_ends[interval_idx], n_bins)
         if len(target_vals.shape) > 1 and target_vals.shape[1] > 1:
             n_dims = target_vals.shape[1]
             y_interp_tmps = []
@@ -598,120 +630,163 @@ def bin_behavior_data(target_times, target_vals, trials_df, allow_nans=False, **
         else:
             y_interp = interp1d(
                 target_time, target_vals, kind='linear', fill_value='extrapolate')(x_interp)
+        return interval_idx, is_good_interval, x_interp, y_interp, skip_reason
 
-        target_times_list.append(x_interp)
-        target_vals_list.append(y_interp)
-        good_trial[i] = True
+    with multiprocessing.Pool(processes=n_workers) as p:
+        targets = list(zip(np.arange(n_intervals), target_times_og_list, target_vals_og_list))
+        with tqdm(total=n_intervals) as pbar:
+            for res in p.imap_unordered(interpolate_behavior, targets):
+                pbar.update()
+                good_interval[res[0]] = res[1]
+                target_times_list[res[0]] = res[2]
+                target_vals_list[res[0]] = res[3]
+                skip_reasons[res[0]] = res[-1]
+        pbar.close()
+        p.close()
 
-    return target_times_list, target_vals_list, np.array(good_trial)
-    
+    return target_times_list, target_vals_list, np.array(good_interval), skip_reasons    
 
 
-def load_anytime_behaviors(one, eid):
+def load_anytime_behaviors(one, eid, n_workers=os.cpu_count()):
 
     behaviors = [
         'wheel-position', 'wheel-velocity', 'wheel-speed',
         'left-whisker-motion-energy', 'right-whisker-motion-energy',
         'left-pupil-diameter', 'right-pupil-diameter',
-        'left-camera-left-paw-speed', 'left-camera-right-paw-speed', 
-        'right-camera-left-paw-speed', 'right-camera-right-paw-speed',
-        'left-nose-speed', 'right-nose-speed'
+        # These behaviors are of bad quality - skip them for now
+        # 'left-camera-left-paw-speed', 'left-camera-right-paw-speed', 
+        # 'right-camera-left-paw-speed', 'right-camera-right-paw-speed',
+        # 'left-nose-speed', 'right-nose-speed'
     ]
+
+    @globalize
+    def load_beh(beh):
+        return beh, load_target_behavior(one, eid, beh)
     
     behave_dict = {}
-    for beh in behaviors:
-        behave_dict.update({beh: load_target_behavior(one, eid, beh)})
-        
+    with multiprocessing.Pool(processes=n_workers) as p:
+        with tqdm(total=len(behaviors)) as pbar:
+            for res in p.imap_unordered(load_beh, behaviors):
+                pbar.update()
+                behave_dict.update({res[0]: res[1]})
+        pbar.close()
+        p.close()
+    
     return behave_dict
 
 
-def load_trial_behaviors(one, eid, trials, mask=None, allow_nans=True, **kwargs):
+def bin_behaviors(
+    one, 
+    eid, 
+    intervals=None, 
+    trials_only=False, 
+    trials_df=None, 
+    mask=None, 
+    allow_nans=True, 
+    n_workers=os.cpu_count(),
+    **kwargs
+):
 
     behaviors = [
         'wheel-position', 'wheel-velocity', 'wheel-speed',
         'left-whisker-motion-energy', 'right-whisker-motion-energy',
         'left-pupil-diameter', 'right-pupil-diameter',
-        'left-camera-left-paw-speed', 'left-camera-right-paw-speed', 
-        'right-camera-left-paw-speed', 'right-camera-right-paw-speed',
-        'left-nose-speed', 'right-nose-speed'
+        # These behaviors are of bad quality - skip them for now
+        # 'left-camera-left-paw-speed', 'left-camera-right-paw-speed', 
+        # 'right-camera-left-paw-speed', 'right-camera-right-paw-speed',
+        # 'left-nose-speed', 'right-nose-speed'
     ]
 
-    behave_dict = {}
+    behave_dict, mask_dict = {}, {}
     
     if mask is not None:
-        trials = trials[mask]
+        trials_df = trials_df[mask]
 
-    # Load discrete behaviors for each trial
-    choice = trials['choice'].to_numpy()
-    block = trials['probabilityLeft'].to_numpy()
-    reward = (trials['rewardVolume'] > 1).astype(int).to_numpy()
-    contrast = np.c_[trials['contrastLeft'], trials['contrastRight']]
-    contrast = (-1 * np.nan_to_num(contrast, 0)).sum(1)
+    if trials_df is not None:        
+        choice = trials_df['choice'].to_numpy()
+        block = trials_df['probabilityLeft'].to_numpy()
+        reward = (trials_df['rewardVolume'] > 1).astype(int).to_numpy()
+        contrast = np.c_[trials_df['contrastLeft'], trials_df['contrastRight']]
+        contrast = (-1 * np.nan_to_num(contrast, 0)).sum(1)
 
-    behave_dict.update(
-        {'choice': choice, 'block': block, 'reward': reward, 'contrast': contrast}
-    )
-
-    # Bin anytime behaviors for each trial
-    behave_mask = np.ones(len(trials))
+        behave_dict.update(
+            {'choice': choice, 'block': block, 'reward': reward, 'contrast': contrast}
+        )
+        behave_mask = np.ones(len(trials_df)) 
+    else:
+        assert intervals is not None, 'Require intervals to segment the recording into chunks including trials and non-trials.'
+        behave_mask = np.ones(len(intervals)) 
+        
     for beh in behaviors:
         target_dict = load_target_behavior(one, eid, beh)
         target_times, target_vals = target_dict['times'], target_dict['values']
-        target_times_list, target_vals_list, target_mask = bin_behavior_data(
-            target_times, target_vals, trials, allow_nans=allow_nans, **kwargs
+        target_times_list, target_vals_list, target_mask, skip_reasons = get_behavior_per_interval(
+            target_times, target_vals, intervals=intervals, 
+            trials_df=trials_df, allow_nans=allow_nans, n_workers=n_workers, **kwargs
         )
         behave_dict.update({beh: np.array(target_vals_list, dtype=object)})
+        mask_dict.update({beh: target_mask})
         behave_mask = np.logical_and(behave_mask, target_mask)
 
     if not allow_nans:
         for k, v in behave_dict.items():
             behave_dict[k] = behave_dict[beh][behave_mask]
     
-    return behave_dict
+    return behave_dict, mask_dict
 
 
-def prepare_data(one, eid, bwm_df, params):
+def prepare_data(one, eid, bwm_df, params, n_workers=os.cpu_count()):
     
     # When merging probes we are interested in eids, not pids
     idx = (bwm_df.eid.unique() == eid).argmax()
     eid = bwm_df.eid.unique()[idx]
     tmp_df = bwm_df.set_index(['eid', 'subject']).xs(eid, level='eid')
     subject = tmp_df.index[0]
+    lab = tmp_df.lab.iloc[0]
+    
     pids = tmp_df['pid'].to_list()  # Select all probes of this session
     probe_names = tmp_df['probe_name'].to_list()
-    print(f"Merged {len(probe_names)} probes for session eid: {eid}")
+    print(f"Merge {len(probe_names)} probes for session eid: {eid}")
 
     clusters_list = []
     spikes_list = []
     for pid, probe_name in zip(pids, probe_names):
-        tmp_spikes, tmp_clusters = load_spiking_data(one, pid, eid=eid, pname=probe_name)
+        tmp_spikes, tmp_clusters, sampling_freq = load_spiking_data(one, pid, eid=eid, pname=probe_name)
         tmp_clusters['pid'] = pid
         spikes_list.append(tmp_spikes)
         clusters_list.append(tmp_clusters)
     spikes, clusters = merge_probes(spikes_list, clusters_list)
-  
-    trials, trials_mask = load_trials_and_mask(one=one, eid=eid)
-    anytime_behaviors = load_anytime_behaviors(one, eid)
+
+    trials_df, trials_mask = load_trials_and_mask(one=one, eid=eid)
+        
+    behave_dict = load_anytime_behaviors(one, eid, n_workers=n_workers)
     
     neural_dict = {
         'spike_times': spikes['times'],
         'spike_clusters': spikes['clusters'],
-        'cluster_regions': clusters['acronym'],
-        'cluster_qc': {k: np.asarray(v) for k, v in clusters.to_dict('list').items()},
-        'cluster_df': clusters
+        'cluster_regions': clusters['acronym'].to_numpy(),
+        # We don't need details about the cluster QC. Only include if good units for now.
+        # 'cluster_qc': {k: np.asarray(v) for k, v in clusters.to_dict('list').items()},
+        # 'cluster_df': clusters
     }
-    
-    behave_dict = anytime_behaviors
-    
-    metadata = {
+        
+    meta_data = {
         'subject': subject,
         'eid': eid,
         'probe_name': probe_name,
-        'trials': trials,
+        'lab': lab,
+        'sampling_freq': sampling_freq,
+        'cluster_channels': list(clusters['channels']),
+        'cluster_regions': list(clusters['acronym']),
+        'good_clusters': list((clusters['label'] >= 1).astype(int))
+    }
+
+    trials_data = {
+        'trials_df': trials_df,
         'trials_mask': trials_mask
     }
 
-    return neural_dict, behave_dict, metadata
+    return neural_dict, behave_dict, meta_data, trials_data
 
 
 def save_data(eid, binned_spikes, binned_behaviors, save_path='./data/'):
@@ -800,5 +875,4 @@ def save_imposter_sessions(data_dir, imposter_dir, n_samples=10):
             )
             
         print(f"Created {n_samples} imposter sessions for eid: {eid}")
-    
-    
+        
