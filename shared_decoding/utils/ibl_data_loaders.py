@@ -4,6 +4,10 @@ from sklearn import preprocessing
 import torch
 from torch.utils.data import Dataset, DataLoader
 from lightning.pytorch import LightningDataModule
+from shared_decoding.utils.ibl_data_utils import seed_everything
+
+seed = 0
+seed_everything(seed)
 
 def to_tensor(x, device):
     return torch.tensor(x).to(device)
@@ -28,8 +32,11 @@ def standardize_spike_data(spike_data, means=None, stds=None):
 
 
 class SingleSessionDataset(Dataset):
-    def __init__(self, data_dir, eid, beh_name, device):
-        file_path = Path(data_dir)/f'{eid}.npz'
+    def __init__(self, data_dir, eid, beh_name, device, imposter_id=None):
+        if imposter_id == None:
+            file_path = Path(data_dir)/f'{eid}.npz'
+        else:
+            file_path = Path(data_dir)/eid/f'imposter_{imposter_id}.npz'
         self.data = np.load(file_path, allow_pickle=True)
         self.spike_data = self.data['spike_data']
         self.behavior = self.data[beh_name]
@@ -61,21 +68,26 @@ class SingleSessionDataModule(LightningDataModule):
         self.config = config
         self.data_dir = config['data_dir']
         self.eid = config['eid']
+        self.imposter_id = config['imposter_id']
         self.beh_name = config['target']
         self.device = config['device']
         self.batch_size = config['batch_size']
         self.n_workers = config['n_workers']
 
     def setup(self, stage=None):
-        session_dataset = SingleSessionDataset(self.data_dir, self.eid, self.beh_name, self.device)
+        session_dataset = SingleSessionDataset(
+            self.data_dir, self.eid, self.beh_name, self.device, imposter_id=self.imposter_id
+        )
         self.config.update({'n_units': session_dataset.n_units, 'n_t_steps': session_dataset.n_t_steps})
     
         data_len = len(session_dataset)
         train_len, val_len = int(0.8*data_len), int(0.1*data_len)
         test_len = data_len - train_len - val_len
 
+        gen = torch.Generator()
+        gen.manual_seed(seed)
         self.train, self.val, self.test = torch.utils.data.random_split(
-            session_dataset, [train_len, val_len, test_len]
+            session_dataset, [train_len, val_len, test_len], generator=gen
         )
 
     def train_dataloader(self):

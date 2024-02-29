@@ -1,6 +1,7 @@
 import os 
 import sys
 import uuid
+import random
 from tqdm import *
 import numpy as np
 import pandas as pd
@@ -9,12 +10,19 @@ import multiprocessing
 from functools import partial
 from scipy.interpolate import interp1d
 
+import torch
+
 from iblutil.numerical import ismember, bincount2D
 import brainbox.behavior.dlc as dlc
 from brainbox.io.one import SpikeSortingLoader, SessionLoader
 from iblatlas.regions import BrainRegions
 from brainbox.population.decode import get_spike_counts_in_bins
 
+def seed_everything(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
 
 def globalize(func):
   def result(*args, **kwargs):
