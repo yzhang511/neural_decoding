@@ -82,7 +82,6 @@ base_config = {
     'eid': args.eid,
     'imposter_id': None,
     'target': args.target,
-    'mlp_hidden_size': (256, 128, 64),
     'drop_out': 0.,
     'lr_factor': 0.1,
     'lr_patience': 5,
@@ -202,3 +201,4 @@ for imposter_id in range(-1, args.n_imposters):
 
         r2, test_pred, test_y = eval_model(dm.train, dm.test, model, model_type=model_type, plot=False)
         save_results(model_type, r2, test_pred, test_y)
+
