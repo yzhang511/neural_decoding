@@ -801,7 +801,7 @@ def save_data(eid, binned_spikes, binned_behaviors, save_path='./data/'):
     
     os.makedirs(save_path, exist_ok=True)
 
-    beh_names = ['wheel-speed', 'right-whisker-motion-energy', 'left-pupil-diameter']
+    beh_names = ['wheel-speed', 'left-whisker-motion-energy', 'left-pupil-diameter']
 
     target_mask = [1] * len(binned_spikes)
     for beh_name in beh_names:
