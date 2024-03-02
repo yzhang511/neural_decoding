@@ -14,6 +14,7 @@ ap.add_argument("--n_samples", type=int, default=10)
 args = ap.parse_args()
 
 base_dir = Path(args.base_dir)
+data_dir = base_dir/'data'
 imposter_dir = base_dir/'imposter'
 
 """
