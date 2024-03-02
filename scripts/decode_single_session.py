@@ -46,8 +46,8 @@ ap.add_argument("--eid", type=str)
 ap.add_argument("--n_imposters", type=int, default=10)
 ap.add_argument("--target", type=str)
 ap.add_argument("--temporal_rank", type=int, default=2)
-ap.add_argument("--learning_rate", type=float, default=0.01)
-ap.add_argument("--weight_decay", type=float, default=0.1)
+ap.add_argument("--learning_rate", type=float, default=0.001)
+ap.add_argument("--weight_decay", type=float, default=0.001)
 ap.add_argument("--max_epochs", type=int, default=500)
 ap.add_argument("--batch_size", type=int, default=8)
 ap.add_argument("--lstm_hidden_size", type=int, default=32)
@@ -77,7 +77,7 @@ DEVICE = torch.device('cuda' if np.logical_and(torch.cuda.is_available(), args.d
 base_config = {
     'data_dir': data_dir,
     'weight_decay': tune.grid_search([1e-1, 1e-3]),
-    'learning_rate': args.learning_rate,
+    'learning_rate': tune.grid_search([5e-3, 1e-3]),
     'batch_size': tune.grid_search([8, 16]),
     'eid': args.eid,
     'imposter_id': None,
@@ -161,11 +161,12 @@ for imposter_id in range(-1, args.n_imposters):
             search_space['temporal_rank'] = tune.grid_search([2, 5, 10])
         elif model_type == "lstm":
             search_space = imposter_config.copy()
-            search_space['lstm_hidden_size'] = tune.grid_search([16, 32, 64])
+            search_space['lstm_hidden_size'] = tune.grid_search([32, 64])
             search_space['lstm_n_layers'] = tune.grid_search([1, 3, 5])
+            search_space['mlp_hidden_size'] = tune.grid_search([(64, 32), (64,), (32,)])
         elif model_type == "mlp":
             search_space = imposter_config.copy()
-            search_space['mlp_hidden_size'] = tune.grid_search([(128, 64, 32), (256, 128, 64)])
+            search_space['mlp_hidden_size'] = tune.grid_search([(256, 128, 64), (512, 256, 128, 64)])
         else:
             raise NotImplementedError
 
