@@ -80,18 +80,31 @@ class MLPDecoder(BaselineDecoder):
         super().__init__(config)
 
         self.hidden_size = config['mlp_hidden_size']
+        self.drop_out = config['drop_out']
 
         self.input_layer = torch.nn.Linear(self.n_units, self.hidden_size[0])
+
+        # self.hidden_lower = torch.nn.ModuleList()
+        # for l in range(len(self.hidden_size)-1):
+        #     self.hidden_lower.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
 
         self.hidden_lower = torch.nn.ModuleList()
         for l in range(len(self.hidden_size)-1):
             self.hidden_lower.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
+            self.hidden_lower.append(torch.nn.ReLU())
+            self.hidden_lower.append(torch.nn.Dropout(self.drop_out))
 
         self.flat_layer = torch.nn.Linear(self.hidden_size[-1]*self.n_t_steps, self.hidden_size[0])
 
+        # self.hidden_upper = torch.nn.ModuleList()
+        # for l in range(len(self.hidden_size)-1):
+        #     self.hidden_upper.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
+            
         self.hidden_upper = torch.nn.ModuleList()
         for l in range(len(self.hidden_size)-1):
             self.hidden_upper.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
+            self.hidden_upper.append(torch.nn.ReLU())
+            self.hidden_upper.append(torch.nn.Dropout(self.drop_out))
 
         self.output_layer = torch.nn.Linear(self.hidden_size[-1], self.n_t_steps)
         
@@ -99,11 +112,15 @@ class MLPDecoder(BaselineDecoder):
 
     def forward(self, x):
         x = self.input_layer(x)
+        # for layer in self.hidden_lower:
+        #     x = F.relu(layer(x))
         for layer in self.hidden_lower:
-            x = F.relu(layer(x))
+            x = layer(x)
         x = F.relu(self.flat_layer(x.flatten(start_dim=1)))
+        # for layer in self.hidden_upper:
+        #     x = F.relu(layer(x))
         for layer in self.hidden_upper:
-            x = F.relu(layer(x))
+            x = layer(x)
         pred = self.output_layer(x)
         return pred
     
@@ -127,9 +144,15 @@ class LSTMDecoder(BaselineDecoder):
 
         self.input_layer = torch.nn.Linear(self.lstm_hidden_size, self.hidden_size[0])
         
+        # self.hidden = torch.nn.ModuleList()
+        # for l in range(len(self.hidden_size)-1):
+        #     self.hidden.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
+
         self.hidden = torch.nn.ModuleList()
         for l in range(len(self.hidden_size)-1):
             self.hidden.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
+            self.hidden.append(torch.nn.ReLU())
+            self.hidden.append(torch.nn.Dropout(self.drop_out))
 
         self.output_layer = torch.nn.Linear(self.hidden_size[-1], self.n_t_steps)
         
@@ -139,8 +162,10 @@ class LSTMDecoder(BaselineDecoder):
         # lstm_out = (batch_size, seq_len, hidden_size)
         lstm_out, _ = self.lstm(x)
         x = F.relu(self.input_layer(lstm_out[:,-1]))
+        # for layer in self.hidden:
+        #     x = F.relu(layer(x))
         for layer in self.hidden:
-            x = F.relu(layer(x))
+            x = layer(x)
         pred = self.output_layer(x)
         return pred
 

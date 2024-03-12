@@ -1,6 +1,7 @@
 import numpy as np
 from pathlib import Path
 from sklearn import preprocessing
+from sklearn.decomposition import PCA
 import torch
 from torch.utils.data import Dataset, DataLoader
 from lightning.pytorch import LightningDataModule
@@ -30,6 +31,13 @@ def standardize_spike_data(spike_data, means=None, stds=None):
     std_spike_data = std_spike_data.reshape(K, T, N)
     return std_spike_data, means, stds
 
+def recon_from_pcs(y, pca, comp_idxs=[0]):
+    if len(comp_idxs) == 1:
+        recon_y = np.dot(pca.transform(y)[:,comp_idxs[0],None], pca.components_[None,comp_idxs[0],:])
+    else:
+        recon_y = np.dot(pca.transform(y)[:,comp_idxs], pca.components_[comp_idxs,:])
+    recon_y += pca.mean_
+    return recon_y    
 
 class SingleSessionDataset(Dataset):
     def __init__(self, data_dir, eid, beh_name, device, imposter_id=None):
@@ -90,6 +98,49 @@ class SingleSessionDataModule(LightningDataModule):
             session_dataset, [train_len, val_len, test_len], generator=gen
         )
 
+    def recon_from_pcs(self, comp_idxs=[0]):
+        
+        train_x, train_y = [], []
+        for (x, y) in dm.train:
+            train_x.append(x.cpu())
+            train_y.append(y.cpu())
+        train_x = np.stack(train_x)
+        train_y = np.stack(train_y)
+        
+        val_x, val_y = [], []
+        for (x, y) in dm.val:
+            val_x.append(x.cpu())
+            val_y.append(y.cpu())
+        val_x = np.stack(val_x)
+        val_y = np.stack(val_y)
+        
+        test_x, test_y = [], []
+        for (x, y) in dm.test:
+            test_x.append(x.cpu())
+            test_y.append(y.cpu())
+        test_x = np.stack(test_x)
+        test_y = np.stack(test_y)
+        
+        all_y = np.vstack([train_y, val_y, test_y])
+    
+        pca = PCA(n_components=self.config['n_t_steps'])
+        pca.fit(all_y)
+
+        _train_y = recon_from_pcs(train_y, pca, comp_idxs=comp_idxs)
+        _val_y = recon_from_pcs(val_y, pca, comp_idxs=comp_idxs)
+        _test_y = recon_from_pcs(test_y, pca, comp_idxs=comp_idxs)
+
+        self.train = [
+            (to_tensor(train_x[i], self.device), to_tensor(_train_y[i], self.device)) for i in range(len(train_x))
+        ]
+        self.val = [
+            (to_tensor(val_x[i], self.device), to_tensor(_val_y[i], self.device)) for i in range(len(val_x))
+        ]
+        self.test = [
+            (to_tensor(test_x[i], self.device), to_tensor(_test_y[i], self.device)) for i in range(len(test_x))
+        ]  
+        print('Reconstructed from PCs: ', comp_idxs)
+        
     def train_dataloader(self):
         if self.device.type == 'cuda':
             # setting num_workers > 0 triggers errors so leave it as it is for now
