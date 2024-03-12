@@ -191,7 +191,7 @@ def eval_model(train, test, model, model_type='reduced-rank', plot=False):
     else:
         raise NotImplementedError
 
-    r2 = r2_score(test_y.flatten(), test_pred.flatten())
+    r2 = r2_score(test_y, test_pred)
 
     if plot:
         plt.figure(figsize=(12, 2))

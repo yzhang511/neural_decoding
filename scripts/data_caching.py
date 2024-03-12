@@ -23,7 +23,7 @@ USER INPUTS
 ap = argparse.ArgumentParser()
 
 ap.add_argument("--base_dir", type=str)
-ap.add_argument("--align_time", type=str, default="firstMovement_times")
+ap.add_argument("--align_time", type=str, default="stimOn_times")
 ap.add_argument("--trial_start", type=float, default=-0.2)
 ap.add_argument("--trial_end", type=float, default=0.8)
 ap.add_argument("--binsize", type=float, default=0.02)
