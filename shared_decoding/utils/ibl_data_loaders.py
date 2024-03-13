@@ -101,21 +101,21 @@ class SingleSessionDataModule(LightningDataModule):
     def recon_from_pcs(self, comp_idxs=[0]):
         
         train_x, train_y = [], []
-        for (x, y) in dm.train:
+        for (x, y) in self.train:
             train_x.append(x.cpu())
             train_y.append(y.cpu())
         train_x = np.stack(train_x)
         train_y = np.stack(train_y)
         
         val_x, val_y = [], []
-        for (x, y) in dm.val:
+        for (x, y) in self.val:
             val_x.append(x.cpu())
             val_y.append(y.cpu())
         val_x = np.stack(val_x)
         val_y = np.stack(val_y)
         
         test_x, test_y = [], []
-        for (x, y) in dm.test:
+        for (x, y) in self.test:
             test_x.append(x.cpu())
             test_y.append(y.cpu())
         test_x = np.stack(test_x)

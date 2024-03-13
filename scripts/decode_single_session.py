@@ -77,9 +77,9 @@ DEVICE = torch.device('cuda' if np.logical_and(torch.cuda.is_available(), args.d
 
 base_config = {
     'data_dir': data_dir,
-    'weight_decay': tune.grid_search([0, 0.5, 0.1, 1e-3]),
-    'learning_rate': tune.grid_search([1e-2, 1e-3]),
-    'batch_size': 8,
+    'weight_decay': tune.grid_search([0.5, 0.1, 1e-3]),
+    'learning_rate': tune.grid_search([5e-3, 1e-3]),
+    'batch_size': tune.grid_search([8]),
     'eid': args.eid,
     'imposter_id': None,
     'target': args.target,
@@ -131,7 +131,7 @@ for imposter_id in range(-1, args.n_imposters):
             if args.smooth_behavior:
                 dm.recon_from_pcs(comp_idxs=[0,1])
             
-            alphas = [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1, 10]
+            alphas = [1, 30, 100, 300, 1000]
             model = GridSearchCV(Ridge(), {"alpha": alphas})
             r2, test_pred, test_y = eval_model(dm.train, dm.test, model, model_type=model_type, plot=False)
             save_results(model_type, r2, test_pred, test_y)
@@ -167,9 +167,9 @@ for imposter_id in range(-1, args.n_imposters):
 
         if model_type == "reduced-rank":
             search_space = imposter_config.copy()
-            search_space['temporal_rank'] = tune.grid_search([10, 15, 20, 25, 30])
+            search_space['temporal_rank'] = tune.grid_search([5, 10, 15, 20, 25])
             # reduced-rank model converges slower 
-            search_space['tune_max_epochs'] = 250
+            search_space['tune_max_epochs'] = 100
         elif model_type == "lstm":
             search_space = imposter_config.copy()
             search_space['lstm_hidden_size'] = tune.grid_search([32, 64])

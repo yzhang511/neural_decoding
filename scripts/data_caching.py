@@ -28,7 +28,7 @@ ap.add_argument("--trial_start", type=float, default=-0.2)
 ap.add_argument("--trial_end", type=float, default=0.8)
 ap.add_argument("--binsize", type=float, default=0.02)
 ap.add_argument("--single_region", action='store_false', default=False)
-ap.add_argument("--eid", type=str)
+ap.add_argument("--eid_idx", type=int)
 
 args = ap.parse_args()
 
@@ -53,10 +53,11 @@ one = ONE(
     base_url='https://openalyx.internationalbrainlab.org', password='international', silent=True
 )
 
-eid = args.eid
-
 freeze_file = '../data/2023_12_bwm_release.csv'
 bwm_df = pd.read_csv(freeze_file, index_col=0)
+
+lp_eids = one.search(dataset='lightningPose', details=False)
+eid = np.intersect1d(bwm_df.eid, lp_eids)[args.eid_idx]
 
 neural_dict, behave_dict, meta_data, trials_data = prepare_data(one, eid, bwm_df, params)
 
