@@ -233,7 +233,7 @@ def eval_model(
     test, 
     model, 
     model_type='reduced-rank', 
-    training_type='multi-sess', 
+    training_type='single-sess', 
     session_idx=None, 
     plot=False
 ):

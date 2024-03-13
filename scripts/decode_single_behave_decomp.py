@@ -6,7 +6,6 @@ from pathlib import Path
 
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import Ridge
-from sklearn.neural_network import MLPRegressor
 
 import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -77,7 +76,7 @@ base_config = {
     'data_dir': data_dir,
     'weight_decay': tune.grid_search([0.5, 0.1, 1e-3]),
     'learning_rate': tune.grid_search([5e-3, 1e-3]),
-    'batch_size': tune.grid_search([8]),
+    'batch_size': 8,
     'eid': args.eid,
     'imposter_id': None,
     'target': args.target,

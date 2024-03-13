@@ -160,17 +160,20 @@ class SingleSessionDataModule(LightningDataModule):
 
 
 class MultiSessionDataModule(LightningDataModule):
-    def __init__(self, eids, configs):
+    def __init__(self, eids, configs, comp_idxs=[]):
         super().__init__()
         self.eids = eids
         self.configs = configs
         self.batch_size = configs[0]['batch_size']
+        self.comp_idxs = comp_idxs
 
     def setup(self, stage=None):
         self.train, self.val, self.test = [], [], []
         for idx, eid in enumerate(self.eids):
             dm = SingleSessionDataModule(self.configs[idx])
             dm.setup()
+            if len(self.comp_idxs) != 0:
+                dm.recon_from_pcs(comp_idxs=self.comp_idxs)
             self.train.append(
                 DataLoader(dm.train, batch_size = self.batch_size, shuffle=True)
             )
