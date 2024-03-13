@@ -5,6 +5,7 @@ from sklearn.decomposition import PCA
 import torch
 from torch.utils.data import Dataset, DataLoader
 from lightning.pytorch import LightningDataModule
+from lightning.pytorch.utilities import CombinedLoader
 from shared_decoding.utils.ibl_data_utils import seed_everything
 
 seed = 0
@@ -157,4 +158,39 @@ class SingleSessionDataModule(LightningDataModule):
     def test_dataloader(self):
         return DataLoader(self.test, batch_size=self.batch_size, shuffle=False, drop_last=True)
 
+
+class MultiSessionDataModule(LightningDataModule):
+    def __init__(self, eids, configs):
+        super().__init__()
+        self.eids = eids
+        self.configs = configs
+        self.batch_size = configs[0]['batch_size']
+
+    def setup(self, stage=None):
+        self.train, self.val, self.test = [], [], []
+        for idx, eid in enumerate(self.eids):
+            dm = SingleSessionDataModule(self.configs[idx])
+            dm.setup()
+            self.train.append(
+                DataLoader(dm.train, batch_size = self.batch_size, shuffle=True)
+            )
+            self.val.append(
+                DataLoader(dm.val, batch_size = self.batch_size, shuffle=False, drop_last=True)
+            )
+            self.test.append(
+                DataLoader(dm.test, batch_size = self.batch_size, shuffle=False, drop_last=True)
+            )
+
+    def train_dataloader(self):
+        data_loader = CombinedLoader(self.train, mode = "max_size_cycle")
+        return data_loader
+
+    def val_dataloader(self):
+        data_loader = CombinedLoader(self.val)
+        return data_loader
+
+    def test_dataloader(self):
+        data_loader = CombinedLoader(self.test)
+        return data_loader
+    
     

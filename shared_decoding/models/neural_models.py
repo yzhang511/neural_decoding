@@ -154,21 +154,113 @@ class LSTMDecoder(BaselineDecoder):
         return pred
 
 
-def eval_model(train, test, model, model_type='reduced-rank', plot=False):
+class BaselineMultiSessionDecoder(LightningModule):
+    def __init__(self, config):
+        super().__init__()
+        self.n_sess = len(config['n_units'])
+        self.n_units = config['n_units']
+        self.n_t_steps = config['n_t_steps']
+        self.learning_rate = config['learning_rate']
+        self.weight_decay = config['weight_decay']
+        self.lr_factor = config['lr_factor']
+        self.lr_patience = config['lr_patience']
+
+        self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput='uniform_average')
+
+    def forward(self, x):
+        pass
+
+    def training_step(self, batch, batch_idx):
+        loss = torch.zeros(len(batch))
+        for idx, session in enumerate(batch):
+            x, y = session
+            pred = self(x, idx)
+            loss[idx] = torch.nn.MSELoss()(pred, y)
+        loss = torch.mean(loss)
+        
+        self.log('loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx, print_str="val"):
+        loss, r2 = torch.zeros(len(batch)), torch.zeros(len(batch))
+        for idx, session in enumerate(batch):
+            x, y = session
+            pred = self(x, idx)
+            loss[idx] = F.mse_loss(pred, y)
+            r2[idx] = self.r2_score(pred, y)
+        loss, r2 = torch.mean(loss), torch.mean(r2)
+
+        self.log(f"{print_str}_loss", loss, prog_bar=True, logger=True, sync_dist=True)
+        self.log(f"{print_str}_r2", self.r2_score, prog_bar=True, logger=True, sync_dist=True)
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        # reuse the validation_step for testing
+        return self.validation_step(batch, batch_idx, print_str='test')
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(
+            self.parameters(), lr = self.learning_rate, weight_decay = self.weight_decay
+        )
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+        return {'optimizer': optimizer, 'lr_scheduler': scheduler, 'monitor': 'val_loss'}
+
+
+class MultiSessionReducedRankDecoder(BaselineMultiSessionDecoder):
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.temporal_rank = config['temporal_rank']
+
+        self.Us = torch.nn.ParameterList(
+            [torch.nn.Parameter(torch.randn(n_units, self.temporal_rank)) for n_units in self.n_units]
+        )
+        self.V = torch.nn.Parameter(torch.randn(self.temporal_rank, self.n_t_steps, self.n_t_steps))
+        self.bs = torch.nn.ParameterList(
+            [torch.nn.Parameter(torch.randn(self.n_t_steps,)) for _ in range(self.n_sess)]
+        )
+        self.double()
+
+    def forward(self, x, idx):
+        B = torch.einsum('nr,rtd->ntd', self.Us[idx], self.V)
+        pred = torch.einsum('ntd,ktn->kd', B, x)
+        pred += self.bs[idx]
+        return pred
+
+
+def eval_model(
+    train, 
+    test, 
+    model, 
+    model_type='reduced-rank', 
+    training_type='multi-sess', 
+    session_idx=None, 
+    plot=False
+):
     
     train_x, train_y = [], []
     for (x, y) in train:
         train_x.append(x.cpu())
         train_y.append(y.cpu())
-    train_x = torch.stack(train_x)
-    train_y = torch.stack(train_y)
+        
+    if training_type == 'multi-sess':
+        train_x = torch.vstack(train_x)
+        train_y = torch.vstack(train_y)
+    else:
+        train_x = torch.stack(train_x)
+        train_y = torch.stack(train_y)
 
     test_x, test_y = [], []
     for (x, y) in test:
         test_x.append(x.cpu())
         test_y.append(y.cpu())
-    test_x = torch.stack(test_x)
-    test_y = np.stack(test_y)
+        
+    if training_type == 'multi-sess':
+        test_x = torch.vstack(test_x)
+        test_y = np.vstack(test_y)
+    else:
+        test_x = torch.stack(test_x)
+        test_y = np.stack(test_y)
 
     if model_type == 'reduced-rank':
         test_pred = model(test_x).detach().numpy()
@@ -196,7 +288,10 @@ def eval_model(train, test, model, model_type='reduced-rank', plot=False):
         
     elif model_type in ['mlp', 'lstm']:
         test_pred = model(test_x).detach().numpy()
-
+        
+    elif model_type == 'multi-sess-reduced-rank':
+        assert session_idx is not None
+        test_pred = model(test_x, session_idx).detach().numpy()
     else:
         raise NotImplementedError
 
@@ -212,3 +307,21 @@ def eval_model(train, test, model, model_type='reduced-rank', plot=False):
 
     return r2, test_pred, test_y
 
+def eval_multi_session_model(
+    train_lst, 
+    test_lst, 
+    model, 
+    model_type='reduced-rank', 
+    plot=False
+):
+    r2_lst, test_pred_lst, test_y_lst = [], [], []
+    for idx, (train, test) in enumerate(zip(train_lst, test_lst)):
+        r2, test_pred, test_y = eval_model(
+            train, test, model, model_type=model_type, training_type='multi-sess',
+            session_idx=idx, plot=plot
+        )
+        r2_lst.append(r2)
+        test_pred_lst.append(test_pred)
+        test_y_lst.append(test_y)
+    return r2_lst, test_pred_lst, test_y_lst
+    
