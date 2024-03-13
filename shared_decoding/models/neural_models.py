@@ -31,6 +31,8 @@ class BaselineDecoder(LightningModule):
         x, y = batch
         pred = self(x)
         loss = F.mse_loss(pred, y)
+        self.r2_score(pred, y)
+        
         self.log('loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
@@ -40,8 +42,8 @@ class BaselineDecoder(LightningModule):
         loss = F.mse_loss(pred, y)
         self.r2_score(pred, y)
 
-        self.log(f"{print_str}_loss", loss, prog_bar=True)
-        self.log(f"{print_str}_r2", self.r2_score, prog_bar=True)
+        self.log(f"{print_str}_loss", loss, prog_bar=True, logger=True)
+        self.log(f"{print_str}_r2", self.r2_score, prog_bar=True, logger=True)
         return loss
 
     def test_step(self, batch, batch_idx):
