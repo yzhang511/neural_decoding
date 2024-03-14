@@ -48,7 +48,7 @@ ap.add_argument("--lr_factor", type=float, default=0.1)
 ap.add_argument("--lr_patience", type=int, default=5)
 ap.add_argument("--device", type=str, default="cpu")
 ap.add_argument("--n_workers", type=int, default=4)
-ap.add_argument("--tune_max_epochs", type=int, default=50)
+ap.add_argument("--tune_max_epochs", type=int, default=35)
 ap.add_argument("--tune_n_samples", type=int, default=1)
 
 args = ap.parse_args()
@@ -66,8 +66,8 @@ DEVICE = torch.device('cuda' if np.logical_and(torch.cuda.is_available(), args.d
 
 base_config = {
     'data_dir': data_dir,
-    'weight_decay': tune.grid_search([0.5, 0.1, 1e-3]),
-    'learning_rate': tune.grid_search([5e-3, 1e-3]),
+    'weight_decay': tune.grid_search([0.1, 1e-3]),
+    'learning_rate': 5e-3,
     'batch_size': 8,
     'imposter_id': None,
     'target': args.target,
@@ -99,7 +99,7 @@ model_type = 'reduced-rank'
 
 for imposter_id in range(-1, args.n_imposters):
 
-    print(f'Decode imposter {imposter_id} for session {args.eid}:')
+    print(f'Decode imposter {imposter_id} for {len(eids)} sessions:')
     print('----------------------------------------------------')
     
     imposter_config = base_config.copy()
@@ -118,7 +118,7 @@ for imposter_id in range(-1, args.n_imposters):
 
     def save_results(eid, model_type, training_type, r2, test_pred, test_y):
         res_dict = {'r2': r2, 'pred': test_pred, 'target': test_y}
-        save_path = res_dir / eid / args.target / training_type + '_' + model_type 
+        save_path = res_dir / eid / args.target / (training_type + '-' + model_type) 
         os.makedirs(save_path, exist_ok=True)
         np.save(save_path / f'imposter_{imposter_id}.npy', res_dict)
         print(f'{eid} {args.target} test R2: ', r2)
@@ -126,7 +126,14 @@ for imposter_id in range(-1, args.n_imposters):
     print(f'Launch {training_type} {model_type} decoder:')
     print('----------------------------------------------------')
 
-    def train_func(configs):
+    def train_func(base_config):
+        
+        configs = []
+        for eid in eids:
+            config = base_config.copy()
+            config['eid'] = eid
+            configs.append(config)
+            
         if args.smooth_behavior:
             dm = MultiSessionDataModule(eids, configs, comp_idxs=[0,1])
         else:
@@ -153,15 +160,14 @@ for imposter_id in range(-1, args.n_imposters):
         trainer.fit(model, datamodule=dm)
 
     if model_type == "reduced-rank":
-        search_space = configs.copy()
-        for idx in range(len(search_space)):
-            search_space[idx]['temporal_rank'] = tune.grid_search([5, 10, 15, 20, 25])
+        search_space = base_config.copy()
+        search_space['temporal_rank'] = tune.grid_search([5, 15, 25])
     else:
         raise NotImplementedError
 
     results = tune_decoder(
-        train_func, search_space, use_gpu=False, max_epochs=search_space['tune_max_epochs'], 
-        num_samples=search_space['tune_n_samples'], num_workers=search_space['n_workers']
+        train_func, search_space, use_gpu=False, max_epochs=base_config['tune_max_epochs'], 
+        num_samples=base_config['tune_n_samples'], num_workers=base_config['n_workers']
     )
     
     best_result = results.get_best_result(metric="val_loss", mode="min")
@@ -174,6 +180,12 @@ for imposter_id in range(-1, args.n_imposters):
     trainer = Trainer(
         max_epochs=best_config['max_epochs'], callbacks=[checkpoint_callback], enable_progress_bar=True
     )
+
+    configs = []
+    for eid in eids:
+        config = best_config.copy()
+        config['eid'] = eid
+        configs.append(config)
     
     if args.smooth_behavior:
         dm = MultiSessionDataModule(eids, configs, comp_idxs=[0,1])
@@ -192,9 +204,9 @@ for imposter_id in range(-1, args.n_imposters):
     trainer.test(datamodule=dm, ckpt_path='best')
 
     r2_lst, test_pred_lst, test_y_lst = eval_multi_session_model(
-        dm.train, dm.test, model, model_type=model_type, training_type=training_type, plot=False
+        dm.train, dm.test, model, plot=False
     )
-    for eid_idx, eid in eids:
+    for eid_idx, eid in enumerate(eids):
         save_results(
             eid, model_type, training_type, 
             r2_lst[eid_idx], test_pred_lst[eid_idx], test_y_lst[eid_idx]

@@ -263,7 +263,11 @@ def eval_model(
         test_y = np.stack(test_y)
 
     if model_type == 'reduced-rank':
-        test_pred = model(test_x).detach().numpy()
+        if training_type == 'multi-sess':
+            assert session_idx is not None
+            test_pred = model(test_x, session_idx).detach().numpy()
+        else:
+            test_pred = model(test_x).detach().numpy()
 
     elif model_type == 'reduced-rank-latents':
         U = model.U.cpu().detach().numpy()
@@ -289,9 +293,6 @@ def eval_model(
     elif model_type in ['mlp', 'lstm']:
         test_pred = model(test_x).detach().numpy()
         
-    elif model_type == 'multi-sess-reduced-rank':
-        assert session_idx is not None
-        test_pred = model(test_x, session_idx).detach().numpy()
     else:
         raise NotImplementedError
 
