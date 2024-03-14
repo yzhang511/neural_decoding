@@ -6,7 +6,7 @@ from ray.train import RunConfig, ScalingConfig, CheckpointConfig
 from ray.train.torch import TorchTrainer
 
 def tune_decoder(
-    train_func, search_space,
+    train_func, search_space, save_dir='/burg/stats/users/yz4123/ray_results',
     max_epochs=500, num_samples=10, use_gpu=False, num_workers=1, 
     metric="val_loss", mode="min", 
 ):
@@ -21,6 +21,8 @@ def tune_decoder(
     )
     
     run_config = RunConfig(
+        storage_path=save_dir,
+        local_dir=save_dir,
         checkpoint_config=CheckpointConfig(
             num_to_keep=2,
             checkpoint_score_attribute=metric,
