@@ -58,6 +58,7 @@ class SingleSessionDataset(Dataset):
         self.spike_data, self.means, self.stds = standardize_spike_data(self.spike_data)
 
         # scaling behavior only on the train set
+        self.behavior[np.isnan(self.behavior)] = np.nanmean(self.behavior)
         self.scaler = preprocessing.StandardScaler().fit(self.behavior)
         self.behavior = self.scaler.transform(self.behavior)
 
