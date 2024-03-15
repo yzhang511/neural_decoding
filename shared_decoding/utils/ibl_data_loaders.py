@@ -59,6 +59,7 @@ class SingleSessionDataset(Dataset):
 
         # scaling behavior only on the train set
         self.behavior[np.isnan(self.behavior)] = np.nanmean(self.behavior)
+        print(self.behavior.shape)
         self.scaler = preprocessing.StandardScaler().fit(self.behavior)
         self.behavior = self.scaler.transform(self.behavior)
 
