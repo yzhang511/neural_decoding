@@ -28,6 +28,7 @@ def tune_decoder(
             checkpoint_score_attribute=metric,
             checkpoint_score_order=mode,
         ),
+        stop={"time_total_s": 5400},  # seconds
     )
     
     ray_trainer = TorchTrainer(

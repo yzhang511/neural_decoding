@@ -58,8 +58,14 @@ class SingleSessionDataset(Dataset):
         self.spike_data, self.means, self.stds = standardize_spike_data(self.spike_data)
 
         # scaling behavior only on the train set
+<<<<<<< HEAD
         self.behavior[np.isnan(self.behavior)] = np.nanmean(self.behavior)
         print(self.behavior.shape)
+=======
+        if np.isnan(self.behavior).sum() != 0:
+            print(f'Session {eid} contains NaNs in {beh_name} !')
+            #self.behavior[np.isnan(self.behavior)] = np.nanmean(self.behavior)
+>>>>>>> c650e82... add timeout to ray tune
         self.scaler = preprocessing.StandardScaler().fit(self.behavior)
         self.behavior = self.scaler.transform(self.behavior)
 
