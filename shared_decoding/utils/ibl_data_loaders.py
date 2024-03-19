@@ -89,6 +89,7 @@ class SingleSessionDataModule(LightningDataModule):
         self.device = config['device']
         self.batch_size = config['batch_size']
         self.n_workers = config['n_workers']
+        self.comp_idxs = config['comp_idxs']
 
     def setup(self, stage=None):
         session_dataset = SingleSessionDataset(
@@ -106,49 +107,51 @@ class SingleSessionDataModule(LightningDataModule):
             session_dataset, [train_len, val_len, test_len], generator=gen
         )
 
-    def recon_from_pcs(self, comp_idxs=[0]):
-        
-        train_x, train_y = [], []
-        for (x, y) in self.train:
-            train_x.append(x.cpu())
-            train_y.append(y.cpu())
-        train_x = np.stack(train_x)
-        train_y = np.stack(train_y)
-        
-        val_x, val_y = [], []
-        for (x, y) in self.val:
-            val_x.append(x.cpu())
-            val_y.append(y.cpu())
-        val_x = np.stack(val_x)
-        val_y = np.stack(val_y)
-        
-        test_x, test_y = [], []
-        for (x, y) in self.test:
-            test_x.append(x.cpu())
-            test_y.append(y.cpu())
-        test_x = np.stack(test_x)
-        test_y = np.stack(test_y)
-        
-        all_y = np.vstack([train_y, val_y, test_y])
-    
-        pca = PCA(n_components=self.config['n_t_steps'])
-        pca.fit(all_y)
+        if self.comp_idxs is not None:
+            train_x, train_y = [], []
+            for (x, y) in self.train:
+                train_x.append(x.cpu())
+                train_y.append(y.cpu())
+            train_x = np.stack(train_x)
+            train_y = np.stack(train_y)
 
-        _train_y = recon_from_pcs(train_y, pca, comp_idxs=comp_idxs)
-        _val_y = recon_from_pcs(val_y, pca, comp_idxs=comp_idxs)
-        _test_y = recon_from_pcs(test_y, pca, comp_idxs=comp_idxs)
+            val_x, val_y = [], []
+            for (x, y) in self.val:
+                val_x.append(x.cpu())
+                val_y.append(y.cpu())
+            val_x = np.stack(val_x)
+            val_y = np.stack(val_y)
 
-        self.train = [
-            (to_tensor(train_x[i], self.device), to_tensor(_train_y[i], self.device)) for i in range(len(train_x))
-        ]
-        self.val = [
-            (to_tensor(val_x[i], self.device), to_tensor(_val_y[i], self.device)) for i in range(len(val_x))
-        ]
-        self.test = [
-            (to_tensor(test_x[i], self.device), to_tensor(_test_y[i], self.device)) for i in range(len(test_x))
-        ]  
-        print('Reconstructed from PCs: ', comp_idxs)
-        
+            test_x, test_y = [], []
+            for (x, y) in self.test:
+                test_x.append(x.cpu())
+                test_y.append(y.cpu())
+            test_x = np.stack(test_x)
+            test_y = np.stack(test_y)
+
+            all_y = np.vstack([train_y, val_y, test_y])
+
+            pca = PCA(n_components=self.config['n_t_steps'])
+            pca.fit(all_y)
+
+            _train_y = recon_from_pcs(train_y, pca, comp_idxs=self.comp_idxs)
+            _val_y = recon_from_pcs(val_y, pca, comp_idxs=self.comp_idxs)
+            _test_y = recon_from_pcs(test_y, pca, comp_idxs=self.comp_idxs)
+
+            self.train = [
+                (to_tensor(train_x[i], self.device), to_tensor(_train_y[i], self.device)) for i in range(len(train_x))
+            ]
+            self.val = [
+                (to_tensor(val_x[i], self.device), to_tensor(_val_y[i], self.device)) for i in range(len(val_x))
+            ]
+            self.test = [
+                (to_tensor(test_x[i], self.device), to_tensor(_test_y[i], self.device)) for i in range(len(test_x))
+            ]
+            print('Use reconstructed behaviors from PCs: ', self.comp_idxs)
+        else:
+            print('Use the original behaviors.')
+       
+
     def train_dataloader(self):
         if self.device.type == 'cuda':
             # setting num_workers > 0 triggers errors so leave it as it is for now
