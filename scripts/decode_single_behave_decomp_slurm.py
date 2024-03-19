@@ -41,7 +41,7 @@ USER INPUTS
 ap = argparse.ArgumentParser()
 
 ap.add_argument("--eid", type=str, default='09b2c4d1-058d-4c84-9fd4-97530f85baf6')
-ap.add_argument("--target", type=str, default='motion_energy')
+ap.add_argument("--target", type=str, default='wheel_speed')
 ap.add_argument("--base_dir", type=str, default='/burg/stats/users/yz4123/shared_decoding')
 ap.add_argument("--n_pc_components", type=int, default=15)
 ap.add_argument("--temporal_rank", type=int, default=2)
@@ -74,7 +74,7 @@ DEVICE = torch.device('cuda' if np.logical_and(torch.cuda.is_available(), args.d
 
 base_config = {
     'data_dir': data_dir,
-    'weight_decay': tune.grid_search([1e-1, 1e-2, 1e-3, 1e-4]),
+    'weight_decay': tune.grid_search([0, 1e-1, 1e-2, 1e-3, 1e-4]),
     'learning_rate': 1e-3,
     'batch_size': 8,
     'eid': args.eid,
@@ -97,7 +97,12 @@ DECODING
 """
 
 #for comp_idx in range(-1, args.n_pc_components):
-for comp_idx in range(9, args.n_pc_components):
+for comp_idx in range(5, args.n_pc_components):
+
+    if comp_idx == -1:
+        base_config['comp_idxs'] = None
+    else:
+        base_config['comp_idxs'] = [comp_idx]
 
     print(f'Decode PC component {comp_idx} for session {args.eid}:')
     print('----------------------------------------------------')
@@ -118,10 +123,7 @@ for comp_idx in range(9, args.n_pc_components):
             dm = SingleSessionDataModule(base_config)
             dm.setup()
             
-            if comp_idx != -1:
-                dm.recon_from_pcs(comp_idxs=[comp_idx])
-            
-            alphas = [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1, 10]
+            alphas = [1e-4, 1e-3, 1e-2, 1e-1, 1, 1e1, 1e2, 1e3, 1e4]
             model = GridSearchCV(Ridge(), {"alpha": alphas})
             r2, test_pred, test_y = eval_model(dm.train, dm.test, model, model_type=model_type, plot=False)
             save_results(model_type, r2, test_pred, test_y)
@@ -130,9 +132,6 @@ for comp_idx in range(9, args.n_pc_components):
         def train_func(config):
             dm = SingleSessionDataModule(config)
             dm.setup()
-            
-            if comp_idx != -1:
-                dm.recon_from_pcs(comp_idxs=[comp_idx])
             
             if model_type == "reduced-rank":
                 model = ReducedRankDecoder(dm.config)
@@ -195,9 +194,6 @@ for comp_idx in range(9, args.n_pc_components):
         )
         dm = SingleSessionDataModule(best_config)
         dm.setup()
-        
-        if comp_idx != -1:
-            dm.recon_from_pcs(comp_idxs=[comp_idx])
         
         if model_type == "reduced-rank":
             model = ReducedRankDecoder(best_config)
