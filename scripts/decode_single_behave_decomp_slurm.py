@@ -96,8 +96,7 @@ DECODING
 --------
 """
 
-#for comp_idx in range(-1, args.n_pc_components):
-for comp_idx in range(5, args.n_pc_components):
+for comp_idx in range(-1, args.n_pc_components):
 
     if comp_idx == -1:
         base_config['comp_idxs'] = None

@@ -1,5 +1,4 @@
 import os
-os.environ["TUNE_MAX_PENDING_TRIALS_PG"] = "1"
 import argparse
 import numpy as np
 import pandas as pd
@@ -38,17 +37,17 @@ ap = argparse.ArgumentParser()
 
 ap.add_argument("--base_dir", type=str)
 ap.add_argument("--target", type=str)
-ap.add_argument("--n_pc_components", type=int, default=10)
+ap.add_argument("--n_pc_components", type=int, default=15)
 ap.add_argument("--temporal_rank", type=int, default=2)
-ap.add_argument("--learning_rate", type=float, default=0.001)
+ap.add_argument("--learning_rate", type=float, default=0.01)
 ap.add_argument("--weight_decay", type=float, default=0.001)
 ap.add_argument("--max_epochs", type=int, default=500)
 ap.add_argument("--batch_size", type=int, default=8)
 ap.add_argument("--lr_factor", type=float, default=0.1)
 ap.add_argument("--lr_patience", type=int, default=5)
 ap.add_argument("--device", type=str, default="cpu")
-ap.add_argument("--n_workers", type=int, default=4)
-ap.add_argument("--tune_max_epochs", type=int, default=35)
+ap.add_argument("--n_workers", type=int, default=1)
+ap.add_argument("--tune_max_epochs", type=int, default=50)
 ap.add_argument("--tune_n_samples", type=int, default=1)
 
 args = ap.parse_args()
@@ -65,8 +64,8 @@ DEVICE = torch.device('cuda' if np.logical_and(torch.cuda.is_available(), args.d
 
 base_config = {
     'data_dir': data_dir,
-    'weight_decay': tune.grid_search([0.1, 1e-3]),
-    'learning_rate': 5e-3,
+    'weight_decay': tune.grid_search([0, 1e-1, 1e-2, 1e-3, 1e-4]),
+    'learning_rate': 1e-2,
     'batch_size': 8,
     'imposter_id': None,
     'target': args.target,
@@ -99,6 +98,11 @@ model_type = 'reduced-rank'
 
 for comp_idx in range(-1, args.n_pc_components):
 
+    if comp_idx == -1:
+        base_config['comp_idxs'] = None
+    else:
+        base_config['comp_idxs'] = [comp_idx]
+
     print(f'Decode PC component {comp_idx} for {len(eids)} sessions:')
     print('----------------------------------------------------')
     
@@ -121,11 +125,9 @@ for comp_idx in range(-1, args.n_pc_components):
             config['eid'] = eid
             configs.append(config)
         
-        if comp_idx != -1:
-            dm = MultiSessionDataModule(eids, configs, comp_idxs=[comp_idx])
-        else:
-            dm = MultiSessionDataModule(eids, configs)
+        dm = MultiSessionDataModule(eids, configs)
         dm.setup()
+        
         base_config = dm.configs[0].copy()
         base_config['n_units'] = [config['n_units'] for config in dm.configs]
             
@@ -148,7 +150,7 @@ for comp_idx in range(-1, args.n_pc_components):
 
     if model_type == "reduced-rank":
         search_space = base_config.copy()
-        search_space['temporal_rank'] = tune.grid_search([5, 15, 25])
+        search_space['temporal_rank'] = tune.grid_search([2, 5, 10, 15, 20, 25])
     else:
         raise NotImplementedError
 
@@ -174,11 +176,9 @@ for comp_idx in range(-1, args.n_pc_components):
         config['eid'] = eid
         configs.append(config)
     
-    if comp_idx != -1:
-        dm = MultiSessionDataModule(eids, configs, comp_idxs=[comp_idx])
-    else:
-        dm = MultiSessionDataModule(eids, configs)
+    dm = MultiSessionDataModule(eids, configs)
     dm.setup()
+    
     best_config = dm.configs[0].copy()
     best_config['n_units'] = [config['n_units'] for config in dm.configs]
     
