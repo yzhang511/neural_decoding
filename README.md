@@ -1,7 +1,7 @@
 ## Exploiting correlations across trials and behavioral sessions to improve neural decoding
 
 <p align="center">
-    <img src=figure.jpg />
+    <img src=assets/figure.jpg />
 </p>
 
 ### Environment setup
