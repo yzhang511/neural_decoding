@@ -1,10 +1,10 @@
-# International Brain Laboratory (IBL) Foundation Model
+## Exploiting correlations across trials and behavioral sessions to improve neural decoding
 
 <p align="center">
-    <img src=assets/figure.jpg />
+    <img src=figure.jpg />
 </p>
 
-## Environment setup
+### Environment setup
 
 Create conda environment:
 
@@ -16,13 +16,12 @@ Activate the environment:
 ```
 conda activate decoding
 ```
-
   
 
-## Datasets
+### Datasets
   
 
 
-## Models
+### Models
 
 
