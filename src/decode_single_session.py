@@ -5,7 +5,7 @@ import pandas as pd
 from pathlib import Path
 
 from sklearn.model_selection import GridSearchCV
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import Ridge, LogisticRegression
 
 import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -18,79 +18,53 @@ from ray.train.lightning import (
     prepare_trainer,
 )
 
-from shared_decoding.utils.ibl_data_utils import seed_everything
-from shared_decoding.utils.ibl_data_loaders import SingleSessionDataModule
-from shared_decoding.models.neural_models import ReducedRankDecoder, MLPDecoder, LSTMDecoder, eval_model
-from shared_decoding.utils.hyperparam_tuning import tune_decoder
+from behavior_decoders.decoder_loader import SingleSessionDataModule
+from behavior_decoders.models import ReducedRankDecoder, MLPDecoder, LSTMDecoder
+from behavior_decoders.eval import eval_model
+from behavior_decoders.hyperparam_tuning import tune_decoder
 
 from ray import tune
 
-def tuple_type(strings):
-    strings = strings.replace("(", "").replace(")", "")
-    mapped_int = map(int, strings.split(","))
-    return tuple(mapped_int)
+from utils.utils import set_seed
+from utils.config_utils import config_from_kwargs, update_config
 
-seed_everything(0)
 
 """
------------
-USER INPUTS
------------
+-------
+CONFIGS
+-------
 """
 
+kwargs = {
+    "model": "include:src/configs/decoder.yaml"
+}
+
+config = config_from_kwargs(kwargs)
+config = update_config("src/configs/decoder.yaml", config)
+config = update_config("src/configs/decoder_trainer.yaml", config)
+
+# Need user inputs: choice of dataset & behavior
 ap = argparse.ArgumentParser()
-
-ap.add_argument("--base_dir", type=str)
 ap.add_argument("--eid", type=str)
-ap.add_argument("--n_imposters", type=int, default=10)
 ap.add_argument("--target", type=str)
-ap.add_argument("--smooth_behavior", action='store_false', default=True)
-ap.add_argument("--temporal_rank", type=int, default=2)
-ap.add_argument("--learning_rate", type=float, default=0.001)
-ap.add_argument("--weight_decay", type=float, default=0.001)
-ap.add_argument("--max_epochs", type=int, default=500)
-ap.add_argument("--batch_size", type=int, default=8)
-ap.add_argument("--lstm_hidden_size", type=int, default=32)
-ap.add_argument("--lstm_n_layers", type=int, default=3)
-ap.add_argument("--mlp_hidden_size", type=tuple_type, default="(128, 64, 32)")
-ap.add_argument("--drop_out", type=float, default=0.)
-ap.add_argument("--lr_factor", type=float, default=0.1)
-ap.add_argument("--lr_patience", type=int, default=5)
-ap.add_argument("--device", type=str, default="cpu")
-ap.add_argument("--n_workers", type=int, default=4)
-ap.add_argument("--tune_max_epochs", type=int, default=50)
-ap.add_argument("--tune_n_samples", type=int, default=1)
-
+ap.add_argument("--method", type=str)
+ap.add_argument("--n_workers", type=int, default=1)
 args = ap.parse_args()
 
-base_dir = Path(args.base_dir)
-data_dir = base_dir / 'data'
-imposter_dir = base_dir/'imposter'
-model_dir = base_dir / 'models'
-res_dir = base_dir / 'results'
+# wandb
+if config.wandb.use:
+    import wandb
+    wandb.login()
+    wandb.init(
+        # project=args.target, entity=args.eid, 
+        config=config,
+        name="train_{}".format(args.method)
+    )
 
-for path in [data_dir, imposter_dir, model_dir, res_dir]:
-    os.makedirs(path, exist_ok=True)
+set_seed(config.seed)
 
-DEVICE = torch.device('cuda' if np.logical_and(torch.cuda.is_available(), args.device == 'gpu') else 'cpu')
-
-base_config = {
-    'data_dir': data_dir,
-    'weight_decay': tune.grid_search([0.5, 0.1, 1e-3]),
-    'learning_rate': tune.grid_search([5e-3, 1e-3]),
-    'batch_size': 8,
-    'eid': args.eid,
-    'imposter_id': None,
-    'target': args.target,
-    'drop_out': 0.,
-    'lr_factor': 0.1,
-    'lr_patience': 5,
-    'device': DEVICE,
-    'n_workers': args.n_workers,
-    'max_epochs': args.max_epochs,
-    'tune_max_epochs': args.tune_max_epochs,
-    'tune_n_samples': args.tune_n_samples
-}
+save_path = Path(config.dirs.output_dir) / args.target / args.method 
+os.makedirs(save_path, exist_ok=True)
 
 """
 --------
@@ -98,126 +72,129 @@ DECODING
 --------
 """
 
-for imposter_id in range(-1, args.n_imposters):
+model_class = args.method
 
-    print(f'Decode imposter {imposter_id} for session {args.eid}:')
-    print('----------------------------------------------------')
-    
-    imposter_config = base_config.copy()
+print(f'Decode {args.target} from session {args.eid}:')
+print(f'Launch {model_class} decoder:')
+print('----------------------------------------------------')
 
-    if imposter_id == -1:
-        imposter_config['data_dir'] = data_dir
+search_space = config.copy()
+search_space['eid'] = args.eid
+search_space['target'] = args.target
+search_space['training']['device'] = torch.device(
+    'cuda' if np.logical_and(torch.cuda.is_available(), config.training.device == 'gpu') else 'cpu'
+)
+
+if model_class == "linear":
+    dm = SingleSessionDataModule(search_space)
+    dm.setup()
+    if config.model.target == 'reg':
+        model = GridSearchCV(Ridge(), {"alpha": [1e-4, 1e-3, 1e-2, 1e-1, 1, 1e1]})
+    elif config.model.target == 'clf':
+        model = GridSearchCV(LogisticRegression(), {"C": [1, 1e1, 1e2, 1e3, 1e4]})
     else:
-        imposter_config['data_dir'] = imposter_dir
-        imposter_config['imposter_id'] = imposter_id
-
-    def save_results(model_type, r2, test_pred, test_y):
-        res_dict = {'r2': r2, 'pred': test_pred, 'target': test_y}
-        save_path = res_dir / args.eid / args.target / model_type 
-        os.makedirs(save_path, exist_ok=True)
-        np.save(save_path / f'imposter_{imposter_id}.npy', res_dict)
-        print(f'{args.target} test R2: ', r2)
-
-    for model_type in ['ridge', 'reduced-rank', 'lstm', 'mlp']:
-
-        print(f'Launch {model_type} decoder:')
-        print('----------------------------------------------------')
-
-        if model_type == "ridge":
-            dm = SingleSessionDataModule(imposter_config)
-            dm.setup()
-
-            if args.smooth_behavior:
-                dm.recon_from_pcs(comp_idxs=[0,1])
-            
-            alphas = [1, 30, 100, 300, 1000]
-            model = GridSearchCV(Ridge(), {"alpha": alphas})
-            r2, test_pred, test_y = eval_model(dm.train, dm.test, model, model_type=model_type, plot=False)
-            save_results(model_type, r2, test_pred, test_y)
-            continue
-
-        def train_func(config):
-            dm = SingleSessionDataModule(config)
-            dm.setup()
-            
-            if args.smooth_behavior:
-                dm.recon_from_pcs(comp_idxs=[0,1])
-                
-            if model_type == "reduced-rank":
-                model = ReducedRankDecoder(dm.config)
-            elif model_type == "lstm":
-                model = LSTMDecoder(dm.config)
-            elif model_type == "mlp":
-                model = MLPDecoder(dm.config)
-            else:
-                raise NotImplementedError
-        
-            trainer = Trainer(
-                max_epochs=config['max_epochs'],
-                devices="auto",
-                accelerator="auto",
-                strategy=RayDDPStrategy(),
-                callbacks=[RayTrainReportCallback()],
-                plugins=[RayLightningEnvironment()],
-                enable_progress_bar=False,
-            )
-            trainer = prepare_trainer(trainer)
-            trainer.fit(model, datamodule=dm)
-
-        if model_type == "reduced-rank":
-            search_space = imposter_config.copy()
-            search_space['temporal_rank'] = tune.grid_search([5, 10, 15, 20, 25])
-            # reduced-rank model converges slower 
-            search_space['tune_max_epochs'] = 100
-        elif model_type == "lstm":
-            search_space = imposter_config.copy()
-            search_space['lstm_hidden_size'] = tune.grid_search([32, 64])
-            search_space['lstm_n_layers'] = tune.grid_search([1, 3, 5])
-            search_space['mlp_hidden_size'] = tune.grid_search([(64,), (32,)])
-            search_space['drop_out'] = tune.grid_search([0., 0.1, 0.2])
-        elif model_type == "mlp":
-            search_space = imposter_config.copy()
-            search_space['mlp_hidden_size'] = tune.grid_search([(256, 128, 64), (512, 256, 128, 64)])
-            search_space['drop_out'] = tune.grid_search([0., 0.1, 0.2])
-        else:
-            raise NotImplementedError
-
-        results = tune_decoder(
-            train_func, search_space, use_gpu=False, max_epochs=search_space['tune_max_epochs'], 
-            num_samples=search_space['tune_n_samples'], num_workers=search_space['n_workers']
-        )
-        
-        best_result = results.get_best_result(metric="val_loss", mode="min")
-        best_config = best_result.config['train_loop_config']
-
-        checkpoint_callback = ModelCheckpoint(
-            monitor='val_loss', mode='min', dirpath=model_dir
-        )
-        
-        trainer = Trainer(
-            max_epochs=best_config['max_epochs'], callbacks=[checkpoint_callback], enable_progress_bar=True
-        )
-        dm = SingleSessionDataModule(best_config)
+        raise NotImplementedError
+    metric, test_pred, test_y = eval_model(
+        dm.train, dm.test, model, target=config.model.target, model_class=model_class
+    )
+else:
+    def train_func(config):
+        dm = SingleSessionDataModule(config)
         dm.setup()
-        if args.smooth_behavior:
-            dm.recon_from_pcs(comp_idxs=[0,1])
-        
-        if model_type == "reduced-rank":
-            model = ReducedRankDecoder(best_config)
-        elif model_type == "lstm":
-            model = LSTMDecoder(best_config)
-        elif model_type == "mlp":
-            model = MLPDecoder(best_config)
+        if model_class == "reduced-rank":
+            model = ReducedRankDecoder(dm.config)
+        elif model_class == "lstm":
+            model = LSTMDecoder(dm.config)
+        elif model_class == "mlp":
+            model = MLPDecoder(dm.config)
         else:
             raise NotImplementedError
-        
+    
+        trainer = Trainer(
+            max_epochs=config['tuner']['num_epochs'],
+            devices="auto",
+            accelerator="auto",
+            strategy=RayDDPStrategy(),
+            callbacks=[RayTrainReportCallback()],
+            plugins=[RayLightningEnvironment()],
+            enable_progress_bar=config['tuner']['enable_progress_bar'],
+        )
+        trainer = prepare_trainer(trainer)
         trainer.fit(model, datamodule=dm)
-        trainer.test(datamodule=dm, ckpt_path='best')
+    
+    # -- Hyper parameter tuning 
+    # -------------------------
+    
+    search_space['optimizer']['lr'] = tune.grid_search([1e-2, 1e-3])
+    search_space['optimizer']['weight_decay'] = tune.grid_search([1, 1e-1, 1e-2, 1e-3])
+    
+    if model_class == "reduced-rank":
+        search_space['reduced_rank']['temporal_rank'] = tune.grid_search([2, 5, 10, 15])
+        search_space['tuner']['num_epochs'] = 500
+        search_space['training']['num_epochs'] = 800
+    elif model_class == "lstm":
+        search_space['lstm']['lstm_hidden_size'] = tune.grid_search([128, 64])
+        search_space['lstm']['lstm_n_layers'] = tune.grid_search([1, 3, 5])
+        search_space['lstm']['drop_out'] = tune.grid_search([0., 0.2, 0.4, 0.6])
+        search_space['tuner']['num_epochs'] = 250
+        search_space['training']['num_epochs'] = 250
+    elif model_class == "mlp":
+        search_space['mlp']['drop_out'] = tune.grid_search([0., 0.2, 0.4, 0.6])
+        search_space['tuner']['num_epochs'] = 250
+        search_space['training']['num_epochs'] = 250
+    else:
+        raise NotImplementedError
+    
+    results = tune_decoder(
+        train_func, search_space, use_gpu=config.tuner.use_gpu, max_epochs=config.tuner.num_epochs, 
+        num_samples=config.tuner.num_samples, num_workers=args.n_workers
+    )
+    
+    best_result = results.get_best_result(metric=config.tuner.metric, mode=config.tuner.mode)
+    best_config = best_result.config['train_loop_config']
 
-        r2, test_pred, test_y = eval_model(dm.train, dm.test, model, model_type=model_type, plot=False)
-        save_results(model_type, r2, test_pred, test_y)
+    print(best_config)
+    
+    # -- Model training 
+    # -----------------
+    checkpoint_callback = ModelCheckpoint(
+        monitor=config.training.metric, mode=config.training.mode, dirpath=config.dirs.checkpoint_dir
+    )
+    
+    trainer = Trainer(
+        max_epochs=config.training.num_epochs, 
+        callbacks=[checkpoint_callback], 
+        enable_progress_bar=config.training.enable_progress_bar
+    )
+    dm = SingleSessionDataModule(best_config)
+    dm.setup()
+    
+    if model_class == "reduced-rank":
+        model = ReducedRankDecoder(best_config)
+    elif model_class == "lstm":
+        model = LSTMDecoder(best_config)
+    elif model_class == "mlp":
+        model = MLPDecoder(best_config)
+    else:
+        raise NotImplementedError
+    
+    trainer.fit(model, datamodule=dm)
+    trainer.test(datamodule=dm, ckpt_path='best')
+    metrics = trainer.test(datamodule=dm, ckpt_path='best')[0]
+    metric = metrics['test_metric']
+    
+    _, test_pred, test_y = eval_model(
+        dm.train, dm.test, model, target=best_config['model']['target'], model_class=model_class
+    )
+    
+print(f'{model_class} {args.target} test metric: ', metric)
 
-        if model_type == "reduced-rank":
-            r2, test_pred, test_y = eval_model(dm.train, dm.test, model, model_type='reduced-rank-latents', plot=False)
-            save_results('reduced-rank-latents', r2, test_pred, test_y)
-
+if config.wandb.use:
+    wandb.log(
+        {"test_metric": metric, "test_pred": test_pred, "test_y": test_y}
+    )
+    wandb.finish()
+else:
+    res_dict = {'test_metric': metric, 'test_pred': test_pred, 'test_y': test_y}
+    np.save(save_path / f'{args.eid}.npy', res_dict)
+        

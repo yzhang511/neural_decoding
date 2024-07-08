@@ -46,11 +46,27 @@ def get_binned_spikes(dataset):
 
 
 class SingleSessionDataset(Dataset):
-    def __init__(self, data_dir, eid, beh_name, target, device, split='train'):
-        # dataset = datasets.load_from_disk(Path(data_dir)/eid)
-        dataset = datasets.load_dataset(f'neurofm123/{eid}_aligned', cache_dir=data_dir)
+    def __init__(
+        self, 
+        data_dir, 
+        eid, 
+        beh_name, 
+        target, 
+        device, 
+        split='train', 
+        region=None,
+        load_local=False
+    ):
+        
+        if load_local:
+            dataset = datasets.load_from_disk(Path(data_dir)/eid)
+        else:
+            dataset = datasets.load_dataset(f'neurofm123/{eid}_aligned', cache_dir=data_dir)
+            
         self.train_spike = get_binned_spikes(dataset['train'])
         self.train_behavior = np.array(dataset['train'][beh_name])
+        self.neuron_regions = np.array(dataset['train']['cluster_regions'])
+        
         if split == 'val':
             try:
                 self.spike_data = get_binned_spikes(dataset[split])
@@ -60,12 +76,19 @@ class SingleSessionDataset(Dataset):
                 self.spike_data = get_binned_spikes(tmp_dataset['test'])
         else:
             self.spike_data = get_binned_spikes(dataset[split])
+            
+        if region is not None:
+            neuron_idxs = np.argwhere(self.neuron_regions == region)
+            self.spike_data = self.spike_data[:,:,neuron_idxs].squeeze()
+            self.regions = np.array([region] * len(self.spike_data))
+        else:
+            self.regions = np.array([np.nan] * len(self.spike_data))
+            
         self.behavior = np.array(dataset[split][beh_name])
 
         self.n_t_steps = self.spike_data.shape[1]
         self.n_units = self.spike_data.shape[2]
 
-        # fit scaler on train to avoid data leakage
         self.train_spike, self.means, self.stds = standardize_spike_data(self.train_spike)
         self.spike_data, _, _ = standardize_spike_data(self.spike_data, self.means, self.stds)
 
@@ -80,7 +103,6 @@ class SingleSessionDataset(Dataset):
             self.behavior[np.isnan(self.behavior)] = np.nanmean(self.behavior)
             print(f'Session {eid} contains NaNs in {beh_name}.')
 
-        # map to device
         self.spike_data = to_tensor(self.spike_data, device).double()
         self.behavior = to_tensor(self.behavior, device).double()
   
@@ -88,7 +110,7 @@ class SingleSessionDataset(Dataset):
         return len(self.spike_data)
 
     def __getitem__(self, trial_idx):
-        return self.spike_data[trial_idx], self.behavior[trial_idx]
+        return self.spike_data[trial_idx], self.behavior[trial_idx], self.regions[trial_idx]
 
     
 class SingleSessionDataModule(LightningDataModule):
@@ -99,29 +121,30 @@ class SingleSessionDataModule(LightningDataModule):
         self.eid = config['eid']
         self.beh_name = config['target']
         self.target = config['model']['target']
+        self.region = config['region']
         self.device = config['training']['device']
+        self.load_local = config['training']['load_local']
         self.batch_size = config['training']['batch_size']
         self.n_workers = config['data']['num_workers']
 
     def setup(self, stage=None):
         self.train = SingleSessionDataset(
-            self.data_dir, self.eid, self.beh_name, self.target, self.device, split='train'
+            self.data_dir, self.eid, self.beh_name, self.target, 
+            self.device, split='train', self.region, self.load_local
         )
         self.val = SingleSessionDataset(
-            self.data_dir, self.eid, self.beh_name, self.target, self.device, split='val'
+            self.data_dir, self.eid, self.beh_name, self.target, 
+            self.device, split='val', self.region, self.load_local
         )
         self.test = SingleSessionDataset(
-            self.data_dir, self.eid, self.beh_name, self.target, self.device, split='test'
+            self.data_dir, self.eid, self.beh_name, self.target, 
+            self.device, split='test', self.region, self.load_local
         )
         self.config.update({'n_units': self.train.n_units, 'n_t_steps': self.train.n_t_steps})
         
 
     def train_dataloader(self):
-        data_loader = DataLoader(
-          self.train, batch_size=self.batch_size, shuffle=True, 
-          # Setting num_workers > 0 triggers errors so leave it as it is for now
-          # num_workers=self.n_workers, pin_memory=True
-        )
+        data_loader = DataLoader(self.train, batch_size=self.batch_size, shuffle=True)
         return data_loader
 
     def val_dataloader(self):

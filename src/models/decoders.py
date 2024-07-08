@@ -39,7 +39,7 @@ class BaselineDecoder(LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx, print_str="val"):
-        x, y = batch
+        x, y, _ = batch
         pred = self(x)
         if self.target == 'reg':
             loss = F.mse_loss(pred, y)
@@ -184,8 +184,8 @@ class BaselineMultiSessionDecoder(LightningModule):
     def training_step(self, batch, batch_idx):
         loss = torch.zeros(len(batch))
         for idx, session in enumerate(batch):
-            x, y = session
-            pred = self(x, idx)
+            x, y, region = session
+            pred = self(x, idx, region)
             loss[idx] = torch.nn.MSELoss()(pred, y)
             if self.target == 'reg':
                 loss[idx] = torch.nn.MSELoss()(pred, y)
@@ -201,8 +201,8 @@ class BaselineMultiSessionDecoder(LightningModule):
     def validation_step(self, batch, batch_idx, print_str="val"):
         loss, metric = torch.zeros(len(batch)), torch.zeros(len(batch))
         for idx, session in enumerate(batch):
-            x, y = session
-            pred = self(x, idx)
+            x, y, region = session
+            pred = self(x, idx, region)
             if self.target == 'reg':
                 loss[idx] = torch.nn.MSELoss()(pred, y)
                 metric[idx] = self.r2_score(pred.flatten(), y.flatten())
@@ -249,4 +249,34 @@ class MultiSessionReducedRankDecoder(BaselineMultiSessionDecoder):
         pred += self.bs[idx]
         return pred
     
+
+    
+class MultiRegionReducedRankDecoder(BaselineMultiSessionDecoder):
+    def __init__(self, config):
+        super().__init__(config)
+        
+        self.temporal_rank = config['temporal_rank']
+        self.global_basis_rank = config['global_basis_rank']
+        self.n_regions = config['n_regions']
+        self.region_to_indx = config['region_to_indx']
+
+        self.Us = torch.nn.ParameterList(
+            [torch.nn.Parameter(torch.randn(n_units, self.temporal_rank)) for n_units in self.n_units]
+        )
+        self.A = nn.Parameter(torch.randn(self.n_regions, self.temporal_rank, self.global_basis_rank))
+        self.B = nn.Parameter(torch.randn(self.global_basis_rank, self.n_t_steps))
+        self.bs = nn.ParameterList(
+            [torch.nn.Parameter(torch.randn(self.output_size,)) for _ in range(self.n_sess)]
+        )
+        self.double()
+        
+    def forward(self, x, sess_idx, region):
+        region_idx = self.region_to_indx[region]
+        self.Vs = torch.einsum("ijk,kt->ijt", self.A, self.B)
+        V = self.Vs[region_idx].squeeze()
+        B = torch.einsum("cr,rt->ct", self.Us[sess_idx], V)
+        pred = torch.einsum('ntd,ktn->kd', B, x)
+        pred += self.bs[sess_idx]
+        return pred
+        
     
