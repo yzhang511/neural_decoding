@@ -18,7 +18,7 @@ from brainbox.population.decode import get_spike_counts_in_bins
 
 def globalize(func):
     def result(*args, **kwargs):
-    return func(*args, **kwargs)
+        return func(*args, **kwargs)
     result.__name__ = result.__qualname__ = uuid.uuid4().hex
     setattr(sys.modules[result.__module__], result.__name__, result)
     return result
@@ -383,7 +383,8 @@ def bin_spiking_data(reg_clu_ids, neural_df, intervals=None, trials_df=None, n_w
             n_workers=n_workers)
         binned_list = [x.T for x in binned_array]   
     return np.array(binned_list), clusters_used_in_bins
-    
+
+
 def load_target_behavior(one, eid, target):
     """
     Parameters
@@ -430,7 +431,6 @@ def load_target_behavior(one, eid, target):
                 'times': sess_loader.wheel['times'].to_numpy(),
                 'values': np.abs(sess_loader.wheel['velocity'].to_numpy())
             }
-    
         # motion_energy is a dictionary of dataframes, each containing the times and the motion energy for each view
         # for the side views, they contain columns ['times', 'whiskerMotionEnergy'] for the body view it contains
         # ['times', 'bodyMotionEnergy']
@@ -446,13 +446,6 @@ def load_target_behavior(one, eid, target):
                 'times': sess_loader.motion_energy['rightCamera']['times'].to_numpy(),
                 'values': sess_loader.motion_energy['rightCamera']['whiskerMotionEnergy'].to_numpy()
             }
-    
-        # To load pose (DLC) data, e.g.
-        # TO DO: Add pupil traces from lightning pose when they become available in the IBL database, e.g.,
-        #        sessions = one.search(dataset='lightningPose', details=False)
-        #        pupil_data = one.load_object(eid, f'leftCamera', attribute=['lightningPose', 'times'])
-        # TO DO: Sometimes some traces are unavailable. Right now we still load them as 'nan' but need to handle it later.
-        # TO DO: Different cameras have very different traces for the same behavior. Treat them as independent? 
         elif target == 'left-pupil-diameter':
             dlc_left = one.load_object(eid, "leftCamera", attribute=["dlc", "features", "times"], collection="alf")
             beh_dict = {
@@ -650,14 +643,9 @@ def get_behavior_per_interval(
 def load_anytime_behaviors(one, eid, n_workers=os.cpu_count()):
 
     behaviors = [
-        #'wheel-position', 'wheel-velocity', 'wheel-speed',
+        'wheel-velocity', 'wheel-speed',
         'left-whisker-motion-energy', 'right-whisker-motion-energy',
-        #'left-pupil-diameter', 'right-pupil-diameter',
-        #'lightning-pose-left-pupil-diameter',
-        # These behaviors are of bad quality - skip them for now
-        # 'left-camera-left-paw-speed', 'left-camera-right-paw-speed', 
-        # 'right-camera-left-paw-speed', 'right-camera-right-paw-speed',
-        # 'left-nose-speed', 'right-nose-speed'
+        'left-pupil-diameter', 'right-pupil-diameter',
     ]
 
     @globalize
@@ -679,6 +667,7 @@ def load_anytime_behaviors(one, eid, n_workers=os.cpu_count()):
 def bin_behaviors(
     one, 
     eid, 
+    behaviors,
     intervals=None, 
     trials_only=False, 
     trials_df=None, 
@@ -687,12 +676,6 @@ def bin_behaviors(
     n_workers=os.cpu_count(),
     **kwargs
 ):
-
-    behaviors = [
-        #'wheel-velocity', 'wheel-speed', 
-        'whisker-motion-energy', 
-        # 'pupil-diameter', # 'lightning-pose-left-pupil-diameter',
-    ]
 
     behave_dict, mask_dict = {}, {}
     
@@ -718,7 +701,11 @@ def bin_behaviors(
         if beh == 'whisker-motion-energy':
             target_dict = load_target_behavior(one, eid, 'left-whisker-motion-energy')
             if 'skip' in target_dict.keys():
-                target_dict = load_target_behavior(one, eid, 'right-whisker-motion-energy')                    
+                target_dict = load_target_behavior(one, eid, 'right-whisker-motion-energy')  
+        elif beh == 'pupil-diameter':
+            target_dict = load_target_behavior(one, eid, 'left-pupil-diameter')
+            if 'skip' in target_dict.keys():
+                target_dict = load_target_behavior(one, eid, 'right-pupil-diameter')  
         else:
             target_dict = load_target_behavior(one, eid, beh)
         target_times, target_vals = target_dict['times'], target_dict['values']
@@ -740,14 +727,7 @@ def bin_behaviors(
 def prepare_data(one, eid, bwm_df, params, n_workers=os.cpu_count()):
     
     # When merging probes we are interested in eids, not pids
-    idx = (bwm_df.eid.unique() == eid).argmax()
-    eid = bwm_df.eid.unique()[idx]
-    tmp_df = bwm_df.set_index(['eid', 'subject']).xs(eid, level='eid')
-    subject = tmp_df.index[0]
-    lab = tmp_df.lab.iloc[0]
-    
-    pids = tmp_df['pid'].to_list()  # Select all probes of this session
-    probe_names = tmp_df['probe_name'].to_list()
+    pids, probe_names = one.eid2pid(eid)
     print(f"Merge {len(probe_names)} probes for session eid: {eid}")
 
     clusters_list = []
@@ -770,10 +750,8 @@ def prepare_data(one, eid, bwm_df, params, n_workers=os.cpu_count()):
     }
         
     meta_data = {
-        'subject': subject,
         'eid': eid,
         'probe_name': probe_name,
-        'lab': lab,
         'sampling_freq': sampling_freq,
         'cluster_channels': list(clusters['channels']),
         'cluster_regions': list(clusters['acronym']),
@@ -781,7 +759,6 @@ def prepare_data(one, eid, bwm_df, params, n_workers=os.cpu_count()):
         'cluster_depths': list(clusters['depths']),
         'uuids':  list(clusters['uuids']),
         'cluster_qc': {k: np.asarray(v) for k, v in clusters.to_dict('list').items()},
-        # 'cluster_df': clusters
     }
 
     trials_data = {
@@ -792,12 +769,7 @@ def prepare_data(one, eid, bwm_df, params, n_workers=os.cpu_count()):
     return neural_dict, behave_dict, meta_data, trials_data
 
 
-def align_spike_behavior(binned_spikes, binned_behaviors, trials_mask=None):
-
-    beh_names = ['choice', 'reward', 'block', 
-                 #'wheel-speed', 
-                 'whisker-motion-energy', #'pupil-diameter', 
-                ]
+def align_spike_behavior(binned_spikes, binned_behaviors, beh_names, trials_mask=None):
 
     target_mask = [1] * len(binned_spikes)
     for beh_name in beh_names:
