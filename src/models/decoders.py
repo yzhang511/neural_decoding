@@ -243,7 +243,7 @@ class MultiSessionReducedRankDecoder(BaselineMultiSessionDecoder):
         )
         self.double()
 
-    def forward(self, x, idx):
+    def forward(self, x, idx, region):
         B = torch.einsum('nr,rtd->ntd', self.Us[idx], self.V)
         pred = torch.einsum('ntd,ktn->kd', B, x)
         pred += self.bs[idx]

@@ -3,31 +3,35 @@ import argparse
 import numpy as np
 import pandas as pd
 from pathlib import Path
-
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import Ridge, LogisticRegression
-
 import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch import Trainer
-
+from ray import tune
 from ray.train.lightning import (
     RayDDPStrategy,
     RayLightningEnvironment,
     RayTrainReportCallback,
     prepare_trainer,
 )
-
-from behavior_decoders.decoder_loader import MultiSessionDataModule
-from behavior_decoders.models import MultiSessionReducedRankDecoder
-from behavior_decoders.eval import eval_multi_session_model
-from behavior_decoders.hyperparam_tuning import tune_decoder
-
-from ray import tune
-
+from utils.data_loaders import MultiSessionDataModule
+from models.decoders import MultiSessionReducedRankDecoder
+from utils.eval import eval_multi_session_model
+from utils.hyperparam_tuning import tune_decoder
 from utils.utils import set_seed
 from utils.config_utils import config_from_kwargs, update_config
 
+ap = argparse.ArgumentParser()
+ap.add_argument(
+    "--target", type=str, default="choice", 
+    choices=["choice", "wheel-speed", "whisker-motion-energy", "pupil-diameter"]
+)
+ap.add_argument("--region", type=str, default="all")
+ap.add_argument("--method", type=str, default="reduced_rank", choices=["reduced_rank"])
+ap.add_argument("--n_workers", type=int, default=1)
+ap.add_argument("--base_path", type=str, default="EXAMPLE_PATH")
+args = ap.parse_args()
 
 """
 -------
@@ -35,34 +39,32 @@ CONFIGS
 -------
 """
 
-kwargs = {
-    "model": "include:configs/decoder.yaml"
-}
+kwargs = {"model": "include:src/configs/decoder.yaml"}
 
 config = config_from_kwargs(kwargs)
-config = update_config("configs/decoder.yaml", config)
-config = update_config("configs/decoder_trainer.yaml", config)
+config = update_config("src/configs/decoder.yaml", config)
 
-# Need user inputs: choice of dataset & behavior
-ap = argparse.ArgumentParser()
-ap.add_argument("--target", type=str)
-ap.add_argument("--method", type=str)
-ap.add_argument("--n_workers", type=int, default=1)
-args = ap.parse_args()
+if args.target in ["wheel-speed", "whisker-motion-energy", "pupil-diameter"]:
+    config = update_config("src/configs/reg_trainer.yaml", config)
+elif args.target in ['choice']:
+    config = update_config("src/configs/clf_trainer.yaml", config)
+else:
+    raise NotImplementedError
 
-# wandb
 if config.wandb.use:
     import wandb
     wandb.login()
     wandb.init(
-        project=args.target, entity='multi_sess', config=config,
+        config=config,
         name="train_{}".format(args.method)
     )
-
 set_seed(config.seed)
 
-save_path = Path(config.dirs.output_dir) / args.target / ('multi-sess-' + args.method) 
+config["dirs"]["data_dir"] = Path(args.base_path)/config.dirs.data_dir
+save_path = Path(args.base_path)/config.dirs.output_dir/args.target/('multi-sess-'+args.method) 
+ckpt_path = Path(args.base_path)/config.dirs.checkpoint_dir/args.target/('multi-sess-'+args.method) 
 os.makedirs(save_path, exist_ok=True)
+os.makedirs(ckpt_path, exist_ok=True)
 
 """
 ---------
@@ -70,7 +72,11 @@ LOAD DATA
 ---------
 """
 
-eids = [fname.split('.')[0] for fname in os.listdir(config.dirs.data_dir)]
+eids = [
+    fname for fname in os.listdir(config.dirs.data_dir) if fname != "downloads"
+]
+
+print(eids)
 
 """
 --------
@@ -80,12 +86,13 @@ DECODING
 
 model_class = args.method
 
-print(f'Decode {args.target} from {len(eids)} sessions:')
-print(f'Launch {model_class} decoder:')
 print('----------------------------------------------------')
+print(f'Decode {args.target} from {len(eids)} sessions:')
+print(f'Launch multi-session {model_class} decoder:')
 
 search_space = config.copy()
 search_space['target'] = args.target
+search_space['region'] = args.region if args.region != 'all' else None
 search_space['training']['device'] = torch.device(
     'cuda' if np.logical_and(torch.cuda.is_available(), config.training.device == 'gpu') else 'cpu'
 )
@@ -104,7 +111,7 @@ def train_func(config):
     base_config = dm.configs[0].copy()
     base_config['n_units'] = [_config['n_units'] for _config in dm.configs]
 
-    if model_class == "reduced-rank":
+    if model_class == "reduced_rank":
         model = MultiSessionReducedRankDecoder(base_config)
     else:
         raise NotImplementedError
@@ -121,31 +128,40 @@ def train_func(config):
     trainer = prepare_trainer(trainer)
     trainer.fit(model, datamodule=dm)
 
-# -- Hyper parameter tuning 
-# -------------------------
+# Hyper parameter tuning 
 
-search_space['optimizer']['lr'] = tune.grid_search([1e-2, 1e-3])
-search_space['optimizer']['weight_decay'] = tune.grid_search([0, 1e-1, 1e-2, 1e-3, 1e-4])
+# search_space['optimizer']['lr'] = tune.grid_search([1e-2, 1e-3])
+# search_space['optimizer']['weight_decay'] = tune.grid_search([0, 1e-1, 1e-2, 1e-3, 1e-4])
 
-if model_class == "reduced-rank":
-    search_space['temporal_rank'] = tune.grid_search([2, 5, 10, 15, 20])
-    search_space['tuner']['num_epochs'] = 500
+search_space['optimizer']['lr'] = tune.grid_search([1e-2])
+search_space['optimizer']['weight_decay'] = tune.grid_search([1e-1])
+
+if model_class == "reduced_rank":
+    # search_space['temporal_rank'] = tune.grid_search([2, 5, 10, 15, 20])
+    # search_space['tuner']['num_epochs'] = 500
+    # search_space['training']['num_epochs'] = 800
+    search_space['temporal_rank'] = tune.grid_search([2])
+    search_space['tuner']['num_epochs'] = 100
     search_space['training']['num_epochs'] = 800
 else:
     raise NotImplementedError
 
 results = tune_decoder(
-    train_func, search_space, use_gpu=config.tuner.use_gpu, max_epochs=config.tuner.num_epochs, 
+    train_func, search_space, save_dir=ckpt_path,
+    use_gpu=config.tuner.use_gpu, max_epochs=config.tuner.num_epochs, 
     num_samples=config.tuner.num_samples, num_workers=args.n_workers
 )
 
 best_result = results.get_best_result(metric=config.tuner.metric, mode=config.tuner.mode)
 best_config = best_result.config['train_loop_config']
 
-# -- Model training 
-# -----------------
+print("Best config:")
+print(best_config)
+
+# Model training 
+
 checkpoint_callback = ModelCheckpoint(
-    monitor=config.training.metric, mode=config.training.mode, dirpath=config.dirs.checkpoint_dir
+    monitor=config.training.metric, mode=config.training.mode, dirpath=ckpt_path
 )
 
 trainer = Trainer(
@@ -166,7 +182,7 @@ dm.setup()
 best_config = dm.configs[0].copy()
 best_config['n_units'] = [_config['n_units'] for _config in dm.configs]
     
-if model_class == "reduced-rank":
+if model_class == "reduced_rank":
     model = MultiSessionReducedRankDecoder(best_config)
 else:
     raise NotImplementedError
@@ -174,18 +190,18 @@ else:
 trainer.fit(model, datamodule=dm)
 trainer.test(datamodule=dm, ckpt_path='best')
 
-# -- Model Eval 
-# -------------
+# Model eval 
+
 metric_lst, test_pred_lst, test_y_lst = eval_multi_session_model(
     dm.train, dm.test, model, target=best_config['model']['target'], 
 )
 
 for eid_idx, eid in enumerate(eids):
-    print(f'{eid} {args.target} test metric: ', metric)
+    print(f'{eid} {args.target} test metric: ', metric_lst[eid_idx])
     
 if config.wandb.use:
     wandb.log(
-        {"eids": eids, "test_metric": metric_lst, "test_pred": test_pred_lst, "test_y": test_y_lst}
+        {"eids": eids, "test_metric": metric_lst}
     )
     wandb.finish()
 else:
