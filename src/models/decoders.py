@@ -27,7 +27,7 @@ class BaselineDecoder(LightningModule):
         pass
 
     def training_step(self, batch, batch_idx):
-        x, y = batch
+        x, y, _ = batch
         pred = self(x)
         if self.target == 'reg':
             loss = F.mse_loss(pred, y)

@@ -130,15 +130,15 @@ class SingleSessionDataModule(LightningDataModule):
     def setup(self, stage=None):
         self.train = SingleSessionDataset(
             self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, split='train', self.region, self.load_local
+            self.device, 'train', self.region, self.load_local
         )
         self.val = SingleSessionDataset(
             self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, split='val', self.region, self.load_local
+            self.device, 'val', self.region, self.load_local
         )
         self.test = SingleSessionDataset(
             self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, split='test', self.region, self.load_local
+            self.device, 'test', self.region, self.load_local
         )
         self.config.update({'n_units': self.train.n_units, 'n_t_steps': self.train.n_t_steps})
         

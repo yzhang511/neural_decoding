@@ -10,13 +10,13 @@ def eval_model(
     test, 
     model, 
     target='reg',
-    model_class='reduced-rank', 
+    model_class='reduced_rank', 
     training_type='single-sess', 
     session_idx=None, 
 ):
     
     train_x, train_y = [], []
-    for (x, y) in train:
+    for (x, y, region) in train:
         train_x.append(x.cpu())
         train_y.append(y.cpu())
         
@@ -28,7 +28,7 @@ def eval_model(
         train_y = torch.stack(train_y)
 
     test_x, test_y = [], []
-    for (x, y) in test:
+    for (x, y, region) in test:
         test_x.append(x.cpu())
         test_y.append(y.cpu())
         
@@ -39,10 +39,10 @@ def eval_model(
         test_x = torch.stack(test_x)
         test_y = np.stack(test_y)
 
-    if model_class == 'reduced-rank':
+    if model_class == 'reduced_rank':
         if training_type == 'multi-sess':
             assert session_idx is not None
-            test_pred = model(test_x, session_idx)
+            test_pred = model(test_x, session_idx, region)
         else:
             test_pred = model(test_x)
         if target == 'clf':
@@ -64,7 +64,7 @@ def eval_model(
             test_pred = softmax(test_pred, dim=1).detach().numpy().argmax(1)
         else:
             test_pred = test_pred.detach().numpy()
-        
+            
     else:
         raise NotImplementedError
 
@@ -81,7 +81,7 @@ def eval_multi_session_model(
     test_lst, 
     model, 
     target='reg',
-    model_class='reduced-rank', 
+    model_class='reduced_rank', 
 ):
     metric_lst, test_pred_lst, test_y_lst = [], [], []
     for idx, (train, test) in enumerate(zip(train_lst, test_lst)):

@@ -3,31 +3,36 @@ import argparse
 import numpy as np
 import pandas as pd
 from pathlib import Path
-
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import Ridge, LogisticRegression
-
 import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch import Trainer
-
+from ray import tune
 from ray.train.lightning import (
     RayDDPStrategy,
     RayLightningEnvironment,
     RayTrainReportCallback,
     prepare_trainer,
 )
-
-from behavior_decoders.decoder_loader import SingleSessionDataModule
-from behavior_decoders.models import ReducedRankDecoder, MLPDecoder, LSTMDecoder
-from behavior_decoders.eval import eval_model
-from behavior_decoders.hyperparam_tuning import tune_decoder
-
-from ray import tune
-
+from utils.data_loaders import SingleSessionDataModule
+from models.decoders import ReducedRankDecoder, MLPDecoder, LSTMDecoder
+from utils.eval import eval_model
+from utils.hyperparam_tuning import tune_decoder
 from utils.utils import set_seed
 from utils.config_utils import config_from_kwargs, update_config
 
+ap = argparse.ArgumentParser()
+ap.add_argument("--eid", type=str)
+ap.add_argument(
+    "--target", type=str, default="choice", 
+    choices=["choice", "wheel-speed", "whisker-motion-energy", "pupil-diameter"]
+)
+ap.add_argument("--region", type=str, default="all")
+ap.add_argument("--method", type=str, default="linear", choices=["linear", "reduced_rank", "mlp", "lstm"])
+ap.add_argument("--n_workers", type=int, default=1)
+ap.add_argument("--base_path", type=str, default="EXAMPLE_PATH")
+args = ap.parse_args()
 
 """
 -------
@@ -35,36 +40,32 @@ CONFIGS
 -------
 """
 
-kwargs = {
-    "model": "include:src/configs/decoder.yaml"
-}
+kwargs = {"model": "include:src/configs/decoder.yaml"}
 
 config = config_from_kwargs(kwargs)
 config = update_config("src/configs/decoder.yaml", config)
-config = update_config("src/configs/decoder_trainer.yaml", config)
 
-# Need user inputs: choice of dataset & behavior
-ap = argparse.ArgumentParser()
-ap.add_argument("--eid", type=str)
-ap.add_argument("--target", type=str)
-ap.add_argument("--method", type=str)
-ap.add_argument("--n_workers", type=int, default=1)
-args = ap.parse_args()
+if args.target in ["wheel-speed", "whisker-motion-energy", "pupil-diameter"]:
+    config = update_config("src/configs/reg_trainer.yaml", config)
+elif args.target in ['choice']:
+    config = update_config("src/configs/clf_trainer.yaml", config)
+else:
+    raise NotImplementedError
 
-# wandb
 if config.wandb.use:
     import wandb
     wandb.login()
     wandb.init(
-        # project=args.target, entity=args.eid, 
         config=config,
         name="train_{}".format(args.method)
     )
-
 set_seed(config.seed)
 
-save_path = Path(config.dirs.output_dir) / args.target / args.method 
+config["dirs"]["data_dir"] = Path(args.base_path)/config.dirs.data_dir
+save_path = Path(args.base_path)/config.dirs.output_dir/args.target/args.method 
+ckpt_path = Path(args.base_path)/config.dirs.checkpoint_dir/args.target/args.method 
 os.makedirs(save_path, exist_ok=True)
+os.makedirs(ckpt_path, exist_ok=True)
 
 """
 --------
@@ -74,13 +75,14 @@ DECODING
 
 model_class = args.method
 
+print('----------------------------------------------')
 print(f'Decode {args.target} from session {args.eid}:')
 print(f'Launch {model_class} decoder:')
-print('----------------------------------------------------')
 
 search_space = config.copy()
 search_space['eid'] = args.eid
 search_space['target'] = args.target
+search_space['region'] = args.region if args.region != 'all' else None
 search_space['training']['device'] = torch.device(
     'cuda' if np.logical_and(torch.cuda.is_available(), config.training.device == 'gpu') else 'cpu'
 )
@@ -101,7 +103,7 @@ else:
     def train_func(config):
         dm = SingleSessionDataModule(config)
         dm.setup()
-        if model_class == "reduced-rank":
+        if model_class == "reduced_rank":
             model = ReducedRankDecoder(dm.config)
         elif model_class == "lstm":
             model = LSTMDecoder(dm.config)
@@ -122,13 +124,12 @@ else:
         trainer = prepare_trainer(trainer)
         trainer.fit(model, datamodule=dm)
     
-    # -- Hyper parameter tuning 
-    # -------------------------
+    # Hyper parameter tuning 
     
     search_space['optimizer']['lr'] = tune.grid_search([1e-2, 1e-3])
     search_space['optimizer']['weight_decay'] = tune.grid_search([1, 1e-1, 1e-2, 1e-3])
     
-    if model_class == "reduced-rank":
+    if model_class == "reduced_rank":
         search_space['reduced_rank']['temporal_rank'] = tune.grid_search([2, 5, 10, 15])
         search_space['tuner']['num_epochs'] = 500
         search_space['training']['num_epochs'] = 800
@@ -146,19 +147,21 @@ else:
         raise NotImplementedError
     
     results = tune_decoder(
-        train_func, search_space, use_gpu=config.tuner.use_gpu, max_epochs=config.tuner.num_epochs, 
+        train_func, search_space, save_dir=ckpt_path,
+        use_gpu=config.tuner.use_gpu, max_epochs=config.tuner.num_epochs, 
         num_samples=config.tuner.num_samples, num_workers=args.n_workers
     )
     
     best_result = results.get_best_result(metric=config.tuner.metric, mode=config.tuner.mode)
     best_config = best_result.config['train_loop_config']
 
+    print("Best config:")
     print(best_config)
     
-    # -- Model training 
-    # -----------------
+    # Model training 
+    
     checkpoint_callback = ModelCheckpoint(
-        monitor=config.training.metric, mode=config.training.mode, dirpath=config.dirs.checkpoint_dir
+        monitor=config.training.metric, mode=config.training.mode, dirpath=ckpt_path
     )
     
     trainer = Trainer(
@@ -169,7 +172,7 @@ else:
     dm = SingleSessionDataModule(best_config)
     dm.setup()
     
-    if model_class == "reduced-rank":
+    if model_class == "reduced_rank":
         model = ReducedRankDecoder(best_config)
     elif model_class == "lstm":
         model = LSTMDecoder(best_config)
@@ -191,7 +194,7 @@ print(f'{model_class} {args.target} test metric: ', metric)
 
 if config.wandb.use:
     wandb.log(
-        {"test_metric": metric, "test_pred": test_pred, "test_y": test_y}
+        {"test_metric": metric}
     )
     wandb.finish()
 else:
