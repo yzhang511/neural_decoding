@@ -1,4 +1,3 @@
-"Code for different versions of Beta mixture model + hidden Markov model (BMM-HMM)."
 import numpy as np
 import math
 from math import log
@@ -654,5 +653,3 @@ class Constrained_BMM_HMM(BMM_HMM):
         return (pi_hat, a_hat, phi_hat, beta_a_hat, beta_b_hat)
 
     
-
-   

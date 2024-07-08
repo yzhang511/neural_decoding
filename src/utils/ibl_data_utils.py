@@ -1,7 +1,6 @@
 import os 
 import sys
 import uuid
-import random
 from tqdm import *
 import numpy as np
 import pandas as pd
@@ -10,26 +9,19 @@ import multiprocessing
 from functools import partial
 from scipy.interpolate import interp1d
 
-import torch
-
 from iblutil.numerical import ismember, bincount2D
 import brainbox.behavior.dlc as dlc
 from brainbox.io.one import SpikeSortingLoader, SessionLoader
 from iblatlas.regions import BrainRegions
 from brainbox.population.decode import get_spike_counts_in_bins
 
-def seed_everything(seed: int):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
 
 def globalize(func):
-  def result(*args, **kwargs):
+    def result(*args, **kwargs):
     return func(*args, **kwargs)
-  result.__name__ = result.__qualname__ = uuid.uuid4().hex
-  setattr(sys.modules[result.__module__], result.__name__, result)
-  return result
+    result.__name__ = result.__qualname__ = uuid.uuid4().hex
+    setattr(sys.modules[result.__module__], result.__name__, result)
+    return result
 
 
 def load_spiking_data(one, pid, compute_metrics=False, qc=None, **kwargs):
@@ -130,7 +122,7 @@ def merge_probes(spikes_list, clusters_list):
 
 def load_trials_and_mask(
         one, eid, min_rt=0.08, max_rt=2., nan_exclude='default', min_trial_len=None,
-        max_trial_len=None, exclude_unbiased=False, exclude_nochoice=False, sess_loader=None):
+        max_trial_len=None, exclude_unbiased=False, exclude_nochoice=True, sess_loader=None):
     """
     Function to load all trials for a given session and create a mask to exclude all trials that have a reaction time
     shorter than min_rt or longer than max_rt or that have NaN for one of the specified events.
@@ -402,8 +394,7 @@ def load_target_behavior(one, eid, target):
         'left-pupil-diameter' | 'right-pupil-diameter' |
         'left-camera-left-paw-speed' | 'left-camera-right-paw-speed' | 
         'right-camera-left-paw-speed' | 'right-camera-right-paw-speed' |
-        'left-nose-speed' | 'right-nose-speed' | 
-        'lightning-pose-left-pupil-diameter' | lightning-pose-right-pupil-diameter
+        'left-nose-speed' | 'right-nose-speed'
     one : 
     eid : str
 
@@ -473,36 +464,6 @@ def load_target_behavior(one, eid, target):
             beh_dict = {
                 'times': dlc_right.times,
                 'values': dlc_right.features.pupilDiameter_smooth
-            }
-        elif target == 'lightning-pose-left-pupil-diameter':
-            lp_left = one.load_object(eid, f'leftCamera', attribute=['lightningPose', 'times'])
-            dm1 = np.fabs(
-                lp_left['lightningPose']['pupil_right_r_x'] - \
-                lp_left['lightningPose']['pupil_left_r_x']
-            )
-            dm2 = np.fabs(
-                lp_left['lightningPose']['pupil_top_r_y'] - \
-                lp_left['lightningPose']['pupil_bottom_r_y']
-            )
-            assert (np.allclose(dm1, dm2))
-            beh_dict = {
-                'times': lp_left['times'],
-                'values': dm1
-            }
-        elif target == 'lightning-pose-right-pupil-diameter':
-            lp_right = one.load_object(eid, f'rightCamera', attribute=['lightningPose', 'times'])
-            dm1 = np.fabs(
-                lp_right['lightningPose']['pupil_right_r_x'] - \
-                lp_right['lightningPose']['pupil_left_r_x']
-            )
-            dm2 = np.fabs(
-                lp_right['lightningPose']['pupil_top_r_y'] - \
-                lp_right['lightningPose']['pupil_bottom_r_y']
-            )
-            assert (np.allclose(dm1, dm2))
-            beh_dict = {
-                'times': lp_right['times'],
-                'values': dm1
             }
         elif target == 'left-camera-left-paw-speed':
             dlc_left = one.load_object(eid, "leftCamera", attribute=["dlc", "features", "times"], collection="alf")
@@ -689,10 +650,10 @@ def get_behavior_per_interval(
 def load_anytime_behaviors(one, eid, n_workers=os.cpu_count()):
 
     behaviors = [
-        'wheel-position', 'wheel-velocity', 'wheel-speed',
+        #'wheel-position', 'wheel-velocity', 'wheel-speed',
         'left-whisker-motion-energy', 'right-whisker-motion-energy',
-        'left-pupil-diameter', 'right-pupil-diameter',
-        'lightning-pose-left-pupil-diameter', 
+        #'left-pupil-diameter', 'right-pupil-diameter',
+        #'lightning-pose-left-pupil-diameter',
         # These behaviors are of bad quality - skip them for now
         # 'left-camera-left-paw-speed', 'left-camera-right-paw-speed', 
         # 'right-camera-left-paw-speed', 'right-camera-right-paw-speed',
@@ -728,14 +689,9 @@ def bin_behaviors(
 ):
 
     behaviors = [
-        'wheel-position', 'wheel-velocity', 'wheel-speed',
-        'left-whisker-motion-energy', 'right-whisker-motion-energy',
-        'left-pupil-diameter', 'right-pupil-diameter',
-        'lightning-pose-left-pupil-diameter', 
-        # These behaviors are of bad quality - skip them for now
-        # 'left-camera-left-paw-speed', 'left-camera-right-paw-speed', 
-        # 'right-camera-left-paw-speed', 'right-camera-right-paw-speed',
-        # 'left-nose-speed', 'right-nose-speed'
+        #'wheel-velocity', 'wheel-speed', 
+        'whisker-motion-energy', 
+        # 'pupil-diameter', # 'lightning-pose-left-pupil-diameter',
     ]
 
     behave_dict, mask_dict = {}, {}
@@ -759,7 +715,12 @@ def bin_behaviors(
         behave_mask = np.ones(len(intervals)) 
         
     for beh in behaviors:
-        target_dict = load_target_behavior(one, eid, beh)
+        if beh == 'whisker-motion-energy':
+            target_dict = load_target_behavior(one, eid, 'left-whisker-motion-energy')
+            if 'skip' in target_dict.keys():
+                target_dict = load_target_behavior(one, eid, 'right-whisker-motion-energy')                    
+        else:
+            target_dict = load_target_behavior(one, eid, beh)
         target_times, target_vals = target_dict['times'], target_dict['values']
         target_times_list, target_vals_list, target_mask, skip_reasons = get_behavior_per_interval(
             target_times, target_vals, intervals=intervals, 
@@ -798,7 +759,7 @@ def prepare_data(one, eid, bwm_df, params, n_workers=os.cpu_count()):
         clusters_list.append(tmp_clusters)
     spikes, clusters = merge_probes(spikes_list, clusters_list)
 
-    trials_df, trials_mask = load_trials_and_mask(one=one, eid=eid)
+    trials_df, trials_mask = load_trials_and_mask(one=one, eid=eid, max_trial_len=10.0)
         
     behave_dict = load_anytime_behaviors(one, eid, n_workers=n_workers)
     
@@ -806,9 +767,6 @@ def prepare_data(one, eid, bwm_df, params, n_workers=os.cpu_count()):
         'spike_times': spikes['times'],
         'spike_clusters': spikes['clusters'],
         'cluster_regions': clusters['acronym'].to_numpy(),
-        # We don't need details about the cluster QC. Only include if good units for now.
-        # 'cluster_qc': {k: np.asarray(v) for k, v in clusters.to_dict('list').items()},
-        # 'cluster_df': clusters
     }
         
     meta_data = {
@@ -819,7 +777,11 @@ def prepare_data(one, eid, bwm_df, params, n_workers=os.cpu_count()):
         'sampling_freq': sampling_freq,
         'cluster_channels': list(clusters['channels']),
         'cluster_regions': list(clusters['acronym']),
-        'good_clusters': list((clusters['label'] >= 1).astype(int))
+        'good_clusters': list((clusters['label'] >= 1).astype(int)),
+        'cluster_depths': list(clusters['depths']),
+        'uuids':  list(clusters['uuids']),
+        'cluster_qc': {k: np.asarray(v) for k, v in clusters.to_dict('list').items()},
+        # 'cluster_df': clusters
     }
 
     trials_data = {
@@ -830,90 +792,33 @@ def prepare_data(one, eid, bwm_df, params, n_workers=os.cpu_count()):
     return neural_dict, behave_dict, meta_data, trials_data
 
 
-def save_data(eid, binned_spikes, binned_behaviors, save_path='./data/'):
-    
-    os.makedirs(save_path, exist_ok=True)
+def align_spike_behavior(binned_spikes, binned_behaviors, trials_mask=None):
 
-    beh_names = ['wheel-speed', 'left-whisker-motion-energy', 'lightning-pose-left-pupil-diameter']
+    beh_names = ['choice', 'reward', 'block', 
+                 #'wheel-speed', 
+                 'whisker-motion-energy', #'pupil-diameter', 
+                ]
 
     target_mask = [1] * len(binned_spikes)
     for beh_name in beh_names:
         beh_mask = [1 if trial is not None else 0 for trial in binned_behaviors[beh_name]]
     target_mask = target_mask and beh_mask
 
+    if trials_mask is not None:
+        target_mask = target_mask and list(trials_mask.to_numpy().astype(int))
+
     del_idxs = np.argwhere(np.array(target_mask) == 0)
 
-    spike_data = np.delete(binned_spikes, del_idxs, axis=0)
-    wheel_speed = np.delete(binned_behaviors['wheel-speed'], del_idxs)
-    motion_energy = np.delete(binned_behaviors['left-whisker-motion-energy'], del_idxs)
-    pupil_diameter = np.delete(binned_behaviors['lightning-pose-left-pupil-diameter'], del_idxs)
+    aligned_binned_spikes = np.delete(binned_spikes, del_idxs, axis=0)
 
-    np.savez_compressed(
-      Path(save_path)/f'{eid}.npz',
-      spike_data=spike_data,
-      wheel_speed=np.array([y for y in wheel_speed], dtype=float).reshape((spike_data.shape[0], -1)),
-      motion_energy=np.array([y for y in motion_energy], dtype=float).reshape((spike_data.shape[0], -1)),
-      pupil_diameter=np.array([y for y in pupil_diameter], dtype=float).reshape((spike_data.shape[0], -1)),
-    )
+    aligned_binned_behaviors = {}
+    for beh_name in beh_names:
+        aligned_binned_behaviors.update({beh_name: np.delete(binned_behaviors[beh_name], del_idxs, axis=0)})
+        aligned_binned_behaviors[beh_name] = np.array(
+                [y for y in aligned_binned_behaviors[beh_name]], dtype=float
+            ).reshape((aligned_binned_spikes.shape[0], -1)
+        )
+        assert len(aligned_binned_spikes) == len(aligned_binned_behaviors[beh_name]), f'mismatch between spike shape {len(aligned_binned_spikes)} and {beh_name} shape {len(aligned_binned_behaviors[beh_name])}'
     
-    
-def save_imposter_sessions(data_dir, imposter_dir, n_samples=10):
-    
-    data_dir = Path(data_dir)
-    imposter_dir = Path(imposter_dir)
-    os.makedirs(imposter_dir, exist_ok=True)
+    return aligned_binned_spikes, aligned_binned_behaviors
 
-    eids = [fname.split('.')[0] for fname in os.listdir(data_dir) if fname.endswith('npz')]
-    
-    # create a pool of sessions to sample from
-    imposter_pool_dict = {}
-    for eid in eids:
-        
-        imposter_pool_dict[eid] = {}
-        file_path = Path(data_dir)/f'{eid}.npz'
-        data = np.load(file_path, allow_pickle=True)
-        imposter_pool_dict[eid].update({
-          'n_trials': len(data['spike_data']),
-          'spike_data': data['spike_data'],
-          'wheel_speed': data['wheel_speed'],
-          'motion_energy': data['motion_energy'],
-          'pupil_diameter': data['pupil_diameter']
-        })
-    
-    # create n_samples imposter sessions for each eid
-    for eid_idx, eid in enumerate(eids):
-        
-        save_path = imposter_dir/eid
-        os.makedirs(save_path, exist_ok=True)
-        
-        n_imposters = len(eids)-1
-        spike_data = imposter_pool_dict[eid]['spike_data']
-        wheel_speed = imposter_pool_dict[eid]['wheel_speed']
-        motion_energy = imposter_pool_dict[eid]['motion_energy']
-        pupil_diameter = imposter_pool_dict[eid]['pupil_diameter']
-        chunk_size = imposter_pool_dict[eid]['n_trials'] // n_imposters
-
-        for sample_idx in range(n_samples):
-            
-            for imposter_idx, imposter_eid in enumerate(np.delete(eids, eid_idx)):
-                
-                mask = np.random.choice(
-                    np.arange(imposter_pool_dict[imposter_eid]['n_trials']), chunk_size, replace=False
-                )
-                wheel_speed[imposter_idx*chunk_size:(imposter_idx+1)*chunk_size] = \
-                imposter_pool_dict[imposter_eid]['wheel_speed'][mask]
-                motion_energy[imposter_idx*chunk_size:(imposter_idx+1)*chunk_size] = \
-                imposter_pool_dict[imposter_eid]['motion_energy'][mask]
-                pupil_diameter[imposter_idx*chunk_size:(imposter_idx+1)*chunk_size] = \
-                imposter_pool_dict[imposter_eid]['pupil_diameter'][mask]
-
-            np.savez_compressed(
-                Path(save_path)/f'imposter_{sample_idx}.npz',
-                spike_data=spike_data,
-                wheel_speed=wheel_speed,
-                motion_energy=motion_energy,
-                pupil_diameter=pupil_diameter,
-            )
-            
-        print(f"Created {n_samples} imposter sessions for eid: {eid}")
-        
