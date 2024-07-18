@@ -62,10 +62,10 @@ class SingleSessionDataset(Dataset):
             dataset = datasets.load_from_disk(Path(data_dir)/eid)
         else:
             dataset = datasets.load_dataset(f'neurofm123/{eid}_aligned', cache_dir=data_dir)
-            
+
         self.train_spike = get_binned_spikes(dataset['train'])
         self.train_behavior = np.array(dataset['train'][beh_name])
-        self.neuron_regions = np.array(dataset['train']['cluster_regions'])
+        self.neuron_regions = np.array(dataset['train']['cluster_regions'])[0]
         
         if split == 'val':
             try:
@@ -76,10 +76,12 @@ class SingleSessionDataset(Dataset):
                 self.spike_data = get_binned_spikes(tmp_dataset['test'])
         else:
             self.spike_data = get_binned_spikes(dataset[split])
+
+        self.sessions = np.array([eid] * len(self.spike_data))
             
         if region is not None:
-            neuron_idxs = np.argwhere(self.neuron_regions == region)
-            self.spike_data = self.spike_data[:,:,neuron_idxs].squeeze()
+            neuron_idxs = np.argwhere(self.neuron_regions == region).flatten()
+            self.spike_data = self.spike_data[:,:,neuron_idxs]
             self.regions = np.array([region] * len(self.spike_data))
         else:
             self.regions = np.array([np.nan] * len(self.spike_data))
@@ -110,7 +112,12 @@ class SingleSessionDataset(Dataset):
         return len(self.spike_data)
 
     def __getitem__(self, trial_idx):
-        return self.spike_data[trial_idx], self.behavior[trial_idx], self.regions[trial_idx]
+        return (
+            self.spike_data[trial_idx], 
+            self.behavior[trial_idx], 
+            self.regions[trial_idx], 
+            self.sessions[trial_idx]
+        )
 
     
 class SingleSessionDataModule(LightningDataModule):
@@ -166,6 +173,7 @@ class MultiSessionDataModule(LightningDataModule):
         for idx, eid in enumerate(self.eids):
             dm = SingleSessionDataModule(self.configs[idx])
             dm.setup()
+            self.configs[idx]['eid'] = eid
             self.train.append(
                 DataLoader(dm.train, batch_size = self.batch_size, shuffle=True)
             )
@@ -187,4 +195,52 @@ class MultiSessionDataModule(LightningDataModule):
     def test_dataloader(self):
         data_loader = CombinedLoader(self.test)
         return data_loader
+
+
+class MultiRegionDataModule(LightningDataModule):
+    def __init__(self, eids, configs):
+        super().__init__()
+        self.eids = eids
+        self.configs = configs
+        self.batch_size = configs[0]['training']['batch_size']
+
+    def setup(self, stage=None):
+        self.all_regions = []; self.regions_dict = {}
+        for idx, eid in enumerate(self.eids):
+            dm = SingleSessionDataModule(self.configs[idx])
+            dm.setup()
+            unique_regions = list(np.unique(dm.train.neuron_regions))
+            unique_regions = [roi for roi in unique_regions if roi not in ['root', 'void']]
+            self.regions_dict[eid] = unique_regions
+            self.all_regions.extend(unique_regions)
+
+        self.train, self.val, self.test = [], [], []
+        for idx, eid in enumerate(self.eids):
+            for region in self.regions_dict[eid]:
+                self.configs[idx]['region'] = region
+                self.configs[idx]['eid'] = eid
+                dm = SingleSessionDataModule(self.configs[idx])
+                dm.setup()
+                self.train.append(
+                    DataLoader(dm.train, batch_size = self.batch_size, shuffle=True)
+                )
+                self.val.append(
+                    DataLoader(dm.val, batch_size = self.batch_size, shuffle=False, drop_last=True)
+                )
+                self.test.append(
+                    DataLoader(dm.test, batch_size = self.batch_size, shuffle=False, drop_last=True)
+                )
+
+    def train_dataloader(self):
+        data_loader = CombinedLoader(self.train, mode = "max_size_cycle")
+        return data_loader
+
+    def val_dataloader(self):
+        data_loader = CombinedLoader(self.val)
+        return data_loader
+
+    def test_dataloader(self):
+        data_loader = CombinedLoader(self.test)
+        return data_loader
+        
     

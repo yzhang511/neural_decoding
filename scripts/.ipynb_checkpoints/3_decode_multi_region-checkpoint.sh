@@ -1,7 +1,7 @@
 #!/bin/bash
 
-#SBATCH --job-name=multi-sess
-#SBATCH --output=multi-sess-%j.out
+#SBATCH --job-name=multi-region
+#SBATCH --output=multi-region-%j.out
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH --ntasks-per-node=1
@@ -14,7 +14,7 @@ conda activate decoding
 
 cd ..
 
-python src/2_decode_multi_session.py --target choice --region all --base_path XXX 
+python src/3_decode_multi_region.py --target choice --base_path XXX 
 
 cd script
 

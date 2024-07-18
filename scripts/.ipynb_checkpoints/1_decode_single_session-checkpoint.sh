@@ -1,7 +1,7 @@
 #!/bin/bash
 
-#SBATCH --job-name=decode_single
-#SBATCH --output=decode_single-%j.out
+#SBATCH --job-name=single-sess
+#SBATCH --output=single-sess-%j.out
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH --ntasks-per-node=1

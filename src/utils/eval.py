@@ -94,3 +94,31 @@ def eval_multi_session_model(
         test_pred_lst.append(test_pred)
         test_y_lst.append(test_y)
     return metric_lst, test_pred_lst, test_y_lst
+
+
+def eval_multi_region_model(
+    train_lst, 
+    test_lst, 
+    model, 
+    target='reg',
+    model_class='reduced_rank', 
+    all_regions=None,
+    region_dict=None,
+):
+    metric_dict, test_pred_dict, test_y_dict = {}, {}, {}
+    for region in all_regions:
+        metric_dict[region], test_pred_dict[region], test_y_dict[region] = {}, {}, {}
+        for idx, (train, test) in enumerate(zip(train_lst, test_lst)):
+            eid = train.eid
+            if region in region_dict[eid]: 
+                metric, test_pred, test_y = eval_model(
+                    train, test, model, target=target, 
+                    model_class=model_class, training_type='multi-sess',
+                    session_idx=idx,
+                    region=region
+                )
+                metric_dict[region][eid] = metric
+                test_pred_dict[region][eid] = test_pred
+                test_y_dict[region][eid] = test_y
+    return metric_dict, test_pred_dict, test_y_dict
+    

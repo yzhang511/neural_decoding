@@ -62,8 +62,8 @@ if config.wandb.use:
 set_seed(config.seed)
 
 config["dirs"]["data_dir"] = Path(args.base_path)/config.dirs.data_dir
-save_path = Path(args.base_path)/config.dirs.output_dir/args.target/args.method 
-ckpt_path = Path(args.base_path)/config.dirs.checkpoint_dir/args.target/args.method 
+save_path = Path(args.base_path)/config.dirs.output_dir/args.target/args.method/args.region
+ckpt_path = Path(args.base_path)/config.dirs.checkpoint_dir/args.target/args.method/args.region 
 os.makedirs(save_path, exist_ok=True)
 os.makedirs(ckpt_path, exist_ok=True)
 
@@ -76,7 +76,7 @@ DECODING
 model_class = args.method
 
 print('----------------------------------------------')
-print(f'Decode {args.target} from session {args.eid}:')
+print(f'Decode {args.target} in region {args.region} from session {args.eid}:')
 print(f'Launch {model_class} decoder:')
 
 search_space = config.copy()
@@ -192,7 +192,7 @@ else:
     
 print(f'{model_class} {args.target} test metric: ', metric)
 
-if config.wandb.use:
+if config["wandb"]["use"]:
     wandb.log(
         {"test_metric": metric}
     )

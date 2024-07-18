@@ -61,8 +61,8 @@ if config.wandb.use:
 set_seed(config.seed)
 
 config["dirs"]["data_dir"] = Path(args.base_path)/config.dirs.data_dir
-save_path = Path(args.base_path)/config.dirs.output_dir/args.target/('multi-sess-'+args.method) 
-ckpt_path = Path(args.base_path)/config.dirs.checkpoint_dir/args.target/('multi-sess-'+args.method) 
+save_path = Path(args.base_path)/config.dirs.output_dir/args.target/('multi-sess-'+args.method)/args.region
+ckpt_path = Path(args.base_path)/config.dirs.checkpoint_dir/args.target/('multi-sess-'+args.method)/args.region
 os.makedirs(save_path, exist_ok=True)
 os.makedirs(ckpt_path, exist_ok=True)
 
@@ -87,7 +87,7 @@ DECODING
 model_class = args.method
 
 print('----------------------------------------------------')
-print(f'Decode {args.target} from {len(eids)} sessions:')
+print(f'Decode {args.target} in region {args.region} from {len(eids)} sessions:')
 print(f'Launch multi-session {model_class} decoder:')
 
 search_space = config.copy()
@@ -130,19 +130,13 @@ def train_func(config):
 
 # Hyper parameter tuning 
 
-# search_space['optimizer']['lr'] = tune.grid_search([1e-2, 1e-3])
-# search_space['optimizer']['weight_decay'] = tune.grid_search([0, 1e-1, 1e-2, 1e-3, 1e-4])
-
-search_space['optimizer']['lr'] = tune.grid_search([1e-2])
-search_space['optimizer']['weight_decay'] = tune.grid_search([1e-1])
+search_space['optimizer']['lr'] = tune.grid_search([1e-3])           # tune.grid_search([1e-2, 1e-3])
+search_space['optimizer']['weight_decay'] = tune.grid_search([1e-1]) #tune.grid_search([0, 1e-1, 1e-2, 1e-3, 1e-4])
 
 if model_class == "reduced_rank":
-    # search_space['temporal_rank'] = tune.grid_search([2, 5, 10, 15, 20])
-    # search_space['tuner']['num_epochs'] = 500
-    # search_space['training']['num_epochs'] = 800
-    search_space['temporal_rank'] = tune.grid_search([2])
-    search_space['tuner']['num_epochs'] = 100
-    search_space['training']['num_epochs'] = 800
+    search_space['temporal_rank'] = tune.grid_search([2]) #tune.grid_search([2, 5, 10, 15, 20])
+    search_space['tuner']['num_epochs'] = 100 #500
+    search_space['training']['num_epochs'] = 500 #800
 else:
     raise NotImplementedError
 
@@ -199,7 +193,7 @@ metric_lst, test_pred_lst, test_y_lst = eval_multi_session_model(
 for eid_idx, eid in enumerate(eids):
     print(f'{eid} {args.target} test metric: ', metric_lst[eid_idx])
     
-if config.wandb.use:
+if config["wandb"]["use"]:
     wandb.log(
         {"eids": eids, "test_metric": metric_lst}
     )
