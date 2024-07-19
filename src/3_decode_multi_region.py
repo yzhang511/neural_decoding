@@ -92,6 +92,7 @@ print(f'Launch multi-region {model_class} decoder:')
 search_space = config.copy()
 search_space['target'] = args.target
 search_space['region'] = 'all' 
+search_space['query_region'] = ['CA1', 'PO', 'LP']
 search_space['training']['device'] = torch.device(
     'cuda' if np.logical_and(torch.cuda.is_available(), config.training.device == 'gpu') else 'cpu'
 )
@@ -129,18 +130,37 @@ for eid in eids:
     config = best_config.copy()
     config['eid'] = eid
     configs.append(config)
+    
+dm = MultiRegionDataModule(eids, configs)
+dm.list_regions()
+regions_dict = dm.regions_dict
+
+configs = []
+for eid in eids:
+    for region in search_space['query_region']:
+        if region in regions_dict[eid]:
+            config = best_config.copy()
+            config['eid'] = eid
+            config['region'] = region
+            configs.append(config)
 
 dm = MultiRegionDataModule(eids, configs)
 dm.setup()
 
 best_config = dm.configs[0].copy()
-best_config['n_units'] = {}
-for _config in dm.configs:
-    best_config['n_units'][_config['eid']] = {}
-    best_config['n_units'][_config['eid']][_config['region']] = _config['n_units']
-best_config['n_regions'] = len(dm.all_regions)
-best_config['region_to_indx'] = {r: i for i,r in enumerate(dm.all_regions)}
-best_config['eid_to_indx'] = {e: i for i,e in enumerate(dm.eids)}
+best_config['n_units'] = []
+best_config['eid_region_to_indx'] = {}
+for eid in eids:
+    best_config['eid_region_to_indx'][eid] = {}
+
+for idx, _config in enumerate(dm.configs):
+    best_config['n_units'].append(_config['n_units'])
+    best_config['eid_region_to_indx'][_config['eid']][_config['region']] = idx
+    
+best_config['n_regions'] = len(search_space['query_region'])
+best_config['region_to_indx'] = {r: i for i,r in enumerate(search_space['query_region'])}
+
+print(best_config['eid_region_to_indx'])
     
 if model_class == "reduced_rank":
     model = MultiRegionReducedRankDecoder(best_config)
@@ -153,7 +173,7 @@ trainer.test(datamodule=dm, ckpt_path='best')
 
 metric_dict, test_pred_dict, test_y_dict = eval_multi_region_model(
     dm.train, dm.test, model, target=best_config['model']['target'], 
-    all_regions=dm.all_regions, region_dict=dm.region_dict
+    all_regions=search_space['query_region'], configs=dm.configs,
 )
 
 print(metric_dict)
@@ -165,11 +185,14 @@ if config["wandb"]["use"]:
     wandb.finish()
 else:
     for region in metric_dict.keys():
+        print(region)
         for eid in metric_dict[region].keys():
             res_dict = {
                 'test_metric': metric_dict[region][eid], 
                 'test_pred': test_pred_dict[region][eid], 
                 'test_y': test_y_dict[region][eid]
             }
-            np.save(save_path / region / f'{eid}.npy', res_dict)
+            print(f'{eid}: {metric_dict[region][eid]}')
+            os.makedirs(save_path/region, exist_ok=True)
+            np.save(save_path/region/f'{eid}.npy', res_dict)
         

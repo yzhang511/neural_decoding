@@ -147,7 +147,10 @@ class SingleSessionDataModule(LightningDataModule):
             self.data_dir, self.eid, self.beh_name, self.target, 
             self.device, 'test', self.region, self.load_local
         )
-        self.config.update({'n_units': self.train.n_units, 'n_t_steps': self.train.n_t_steps})
+        self.config.update({
+            'n_units': self.train.n_units, 'n_t_steps': self.train.n_t_steps,
+            'eid': self.eid, 'region': self.region
+        })
         
 
     def train_dataloader(self):
@@ -173,7 +176,6 @@ class MultiSessionDataModule(LightningDataModule):
         for idx, eid in enumerate(self.eids):
             dm = SingleSessionDataModule(self.configs[idx])
             dm.setup()
-            self.configs[idx]['eid'] = eid
             self.train.append(
                 DataLoader(dm.train, batch_size = self.batch_size, shuffle=True)
             )
@@ -203,8 +205,9 @@ class MultiRegionDataModule(LightningDataModule):
         self.eids = eids
         self.configs = configs
         self.batch_size = configs[0]['training']['batch_size']
+        self.query_region = configs[0]['query_region']
 
-    def setup(self, stage=None):
+    def list_regions(self):
         self.all_regions = []; self.regions_dict = {}
         for idx, eid in enumerate(self.eids):
             dm = SingleSessionDataModule(self.configs[idx])
@@ -214,22 +217,23 @@ class MultiRegionDataModule(LightningDataModule):
             self.regions_dict[eid] = unique_regions
             self.all_regions.extend(unique_regions)
 
+        self.all_regions = list(np.unique(self.all_regions))
+        
+    def setup(self, stage=None):
+        
         self.train, self.val, self.test = [], [], []
-        for idx, eid in enumerate(self.eids):
-            for region in self.regions_dict[eid]:
-                self.configs[idx]['region'] = region
-                self.configs[idx]['eid'] = eid
-                dm = SingleSessionDataModule(self.configs[idx])
-                dm.setup()
-                self.train.append(
-                    DataLoader(dm.train, batch_size = self.batch_size, shuffle=True)
-                )
-                self.val.append(
-                    DataLoader(dm.val, batch_size = self.batch_size, shuffle=False, drop_last=True)
-                )
-                self.test.append(
-                    DataLoader(dm.test, batch_size = self.batch_size, shuffle=False, drop_last=True)
-                )
+        for config in self.configs:
+            dm = SingleSessionDataModule(config)
+            dm.setup()
+            self.train.append(
+                DataLoader(dm.train, batch_size = self.batch_size, shuffle=True)
+            )
+            self.val.append(
+                DataLoader(dm.val, batch_size = self.batch_size, shuffle=False, drop_last=True)
+            )
+            self.test.append(
+                DataLoader(dm.test, batch_size = self.batch_size, shuffle=False, drop_last=True)
+            )
 
     def train_dataloader(self):
         data_loader = CombinedLoader(self.train, mode = "max_size_cycle")

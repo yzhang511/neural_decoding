@@ -175,6 +175,7 @@ dm.setup()
 
 best_config = dm.configs[0].copy()
 best_config['n_units'] = [_config['n_units'] for _config in dm.configs]
+best_config['eid_to_indx'] = {e: i for i,e in enumerate(eids)}
     
 if model_class == "reduced_rank":
     model = MultiSessionReducedRankDecoder(best_config)

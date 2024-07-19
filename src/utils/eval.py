@@ -12,11 +12,10 @@ def eval_model(
     target='reg',
     model_class='reduced_rank', 
     training_type='single-sess', 
-    session_idx=None, 
 ):
     
     train_x, train_y = [], []
-    for (x, y, region) in train:
+    for (x, y, region, eid) in train:
         train_x.append(x.cpu())
         train_y.append(y.cpu())
         
@@ -28,7 +27,7 @@ def eval_model(
         train_y = torch.stack(train_y)
 
     test_x, test_y = [], []
-    for (x, y, region) in test:
+    for (x, y, region, eid) in test:
         test_x.append(x.cpu())
         test_y.append(y.cpu())
         
@@ -41,8 +40,7 @@ def eval_model(
 
     if model_class == 'reduced_rank':
         if training_type == 'multi-sess':
-            assert session_idx is not None
-            test_pred = model(test_x, session_idx, region)
+            test_pred = model(test_x, eid, region)
         else:
             test_pred = model(test_x)
         if target == 'clf':
@@ -88,7 +86,6 @@ def eval_multi_session_model(
         metric, test_pred, test_y = eval_model(
             train, test, model, target=target, 
             model_class=model_class, training_type='multi-sess',
-            session_idx=idx
         )
         metric_lst.append(metric)
         test_pred_lst.append(test_pred)
@@ -103,22 +100,21 @@ def eval_multi_region_model(
     target='reg',
     model_class='reduced_rank', 
     all_regions=None,
-    region_dict=None,
+    configs=None,
 ):
     metric_dict, test_pred_dict, test_y_dict = {}, {}, {}
     for region in all_regions:
         metric_dict[region], test_pred_dict[region], test_y_dict[region] = {}, {}, {}
-        for idx, (train, test) in enumerate(zip(train_lst, test_lst)):
-            eid = train.eid
-            if region in region_dict[eid]: 
-                metric, test_pred, test_y = eval_model(
-                    train, test, model, target=target, 
-                    model_class=model_class, training_type='multi-sess',
-                    session_idx=idx,
-                    region=region
-                )
-                metric_dict[region][eid] = metric
-                test_pred_dict[region][eid] = test_pred
-                test_y_dict[region][eid] = test_y
+        
+    for idx, (train, test) in enumerate(zip(train_lst, test_lst)):
+        eid = configs[idx]['eid']
+        region = configs[idx]['region']
+        metric, test_pred, test_y = eval_model(
+            train, test, model, target=target, 
+            model_class=model_class, training_type='multi-sess',
+        )
+        metric_dict[region][eid] = metric
+        test_pred_dict[region][eid] = test_pred
+        test_y_dict[region][eid] = test_y
     return metric_dict, test_pred_dict, test_y_dict
     
