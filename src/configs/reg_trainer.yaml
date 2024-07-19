@@ -1,8 +1,5 @@
 seed: 42
 
-wandb:
-  use: false
-
 dirs:
   checkpoint_dir: checkpoints  
   log_dir: train_logs  

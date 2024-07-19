@@ -21,8 +21,8 @@ def to_tensor(x, device):
     return torch.tensor(x).to(device)
 
 def standardize_spike_data(spike_data, means=None, stds=None):
+    
     K, T, N = spike_data.shape
-
     if (means is None) and (stds == None):
         means, stds = np.empty((T, N)), np.empty((T, N))
 

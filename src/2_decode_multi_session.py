@@ -1,10 +1,9 @@
+"""Example script for running multi-session reduced-rank model."""
 import os
 import argparse
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from sklearn.model_selection import GridSearchCV
-from sklearn.linear_model import Ridge, LogisticRegression
 import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch import Trainer
@@ -22,6 +21,11 @@ from utils.hyperparam_tuning import tune_decoder
 from utils.utils import set_seed
 from utils.config_utils import config_from_kwargs, update_config
 
+"""
+-----------
+USER INPUTS
+-----------
+"""
 ap = argparse.ArgumentParser()
 ap.add_argument(
     "--target", type=str, default="choice", 
@@ -33,12 +37,12 @@ ap.add_argument("--n_workers", type=int, default=1)
 ap.add_argument("--base_path", type=str, default="EXAMPLE_PATH")
 args = ap.parse_args()
 
+
 """
 -------
 CONFIGS
 -------
 """
-
 kwargs = {"model": "include:src/configs/decoder.yaml"}
 
 config = config_from_kwargs(kwargs)
@@ -66,24 +70,24 @@ ckpt_path = Path(args.base_path)/config.dirs.checkpoint_dir/args.target/('multi-
 os.makedirs(save_path, exist_ok=True)
 os.makedirs(ckpt_path, exist_ok=True)
 
+
 """
 ---------
 LOAD DATA
 ---------
 """
-
 eids = [
     fname for fname in os.listdir(config.dirs.data_dir) if fname != "downloads"
 ]
 
 print(eids)
 
+
 """
 --------
 DECODING
 --------
 """
-
 model_class = args.method
 
 print('----------------------------------------------------')
@@ -185,8 +189,12 @@ else:
 trainer.fit(model, datamodule=dm)
 trainer.test(datamodule=dm, ckpt_path='best')
 
-# Model eval 
 
+"""
+----------
+EVALUATION
+----------
+"""
 metric_lst, test_pred_lst, test_y_lst = eval_multi_session_model(
     dm.train, dm.test, model, target=best_config['model']['target'], 
 )
