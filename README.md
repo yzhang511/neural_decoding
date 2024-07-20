@@ -1,4 +1,4 @@
-## Exploiting correlations across trials and behavioral sessions to improve neural decoding
+## Exploiting statistical structure in the data to improve neural decoding
 
 <p align="center">
     <img src=assets/figure.jpg />
