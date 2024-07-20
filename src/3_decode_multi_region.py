@@ -1,4 +1,5 @@
-"""Example script for running multi-region reduced-rank model."""
+"""Example script for running multi-region reduced-rank model w/o hyperparameter sweep.
+"""
 import os
 import argparse
 import numpy as np
@@ -7,9 +8,9 @@ from pathlib import Path
 import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch import Trainer
-from utils.data_loaders import MultiRegionDataModule
+from utils.data_loader_utils import MultiRegionDataModule
 from models.decoders import MultiRegionReducedRankDecoder
-from utils.eval import eval_multi_region_model
+from utils.eval_utils import eval_multi_region_model
 from utils.utils import set_seed
 from utils.config_utils import config_from_kwargs, update_config
 
@@ -23,6 +24,7 @@ ap.add_argument(
     "--target", type=str, default="choice", 
     choices=["choice", "wheel-speed", "whisker-motion-energy", "pupil-diameter"]
 )
+ap.add_argument("--query_region", nargs="+", default=["CA1", "LP", "PO"])
 ap.add_argument("--method", type=str, default="reduced_rank", choices=["reduced_rank"])
 ap.add_argument("--n_workers", type=int, default=1)
 ap.add_argument("--base_path", type=str, default="EXAMPLE_PATH")
@@ -54,7 +56,7 @@ os.makedirs(save_path, exist_ok=True)
 os.makedirs(ckpt_path, exist_ok=True)
 
 model_class = args.method
-query_region = ['CA1', 'PO', 'LP']
+query_region = args.query_region
 
 
 """
@@ -131,7 +133,7 @@ for eid in eids:
 dm = MultiRegionDataModule(eids, configs)
 dm.setup()
 
-# train model
+# init and train model
 base_config = dm.configs[0].copy()
 base_config['n_units'], base_config['eid_region_to_indx'] = [], {}
 for eid in eids:
@@ -161,7 +163,7 @@ EVALUATION
 ----------
 """
 metric_dict, test_pred_dict, test_y_dict = eval_multi_region_model(
-    dm.train, dm.test, model, target=args.target, 
+    dm.train, dm.test, model, target=base_config['model']['target'], 
     all_regions=query_region, configs=dm.configs,
 )
 print("Decoding results for each session and region:")

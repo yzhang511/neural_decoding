@@ -87,7 +87,6 @@ class SingleSessionDataset(Dataset):
         self.train_spike = get_binned_spikes(dataset['train'])
         self.train_behavior = np.array(dataset['train'][beh_name])
         self.neuron_regions = np.array(dataset['train']['cluster_regions'])[0]
-        self.sessions = np.array([eid] * len(self.spike_data))
         
         if split == 'val':
             try:
@@ -101,13 +100,14 @@ class SingleSessionDataset(Dataset):
         else:
             self.spike_data = get_binned_spikes(dataset[split])
             
-        if region is not None or region != 'all':
+        if region and region != 'all':
             neuron_idxs = np.argwhere(self.neuron_regions == region).flatten()
             self.spike_data = self.spike_data[:,:,neuron_idxs]
             self.regions = np.array([region] * len(self.spike_data))
         else:
-            self.regions = np.array([np.nan] * len(self.spike_data))
+            self.regions = np.array(['all'] * len(self.spike_data))
 
+        self.sessions = np.array([eid] * len(self.spike_data))
         self.n_t_steps, self.n_units = self.spike_data.shape[1], self.spike_data.shape[2]
 
         self.behavior = np.array(dataset[split][beh_name])

@@ -14,7 +14,7 @@ conda activate decoding
 
 cd ..
 
-python src/3_decode_multi_region.py --target choice --base_path XXX 
+python src/3_decode_multi_region.py --target choice --query_region CA1 LP PO --base_path XXX 
 
 cd script
 

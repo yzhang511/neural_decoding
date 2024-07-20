@@ -51,7 +51,7 @@ def eval_model(
     # Model prediction
     if model_class == 'reduced_rank':
         if training_type == 'multi-sess':
-            test_pred = model(test_x, eid, region)
+            test_pred = model(test_x, eid[0], region[0])
         else:
             test_pred = model(test_x)
         if target == 'clf':
