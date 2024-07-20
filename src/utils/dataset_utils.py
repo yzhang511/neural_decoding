@@ -1,3 +1,4 @@
+"""Utils for working with Hugging Face datasets."""
 import os
 import pickle
 import numpy as np
@@ -49,7 +50,8 @@ def get_binned_spikes_from_sparse(
     return binned_spikes
 
 def create_dataset(binned_spikes, bwm_df, eid, params, meta_data=None, binned_behaviors=None):
-    # Scipy sparse matrices can't be directly loaded into HuggingFace Datasets so they are converted to lists
+    # scipy sparse matrices can't be directly loaded into HuggingFace Datasets 
+    #       so they are converted to lists
     sparse_binned_spikes, spikes_sparse_data_list, spikes_sparse_indices_list, spikes_sparse_indptr_list, spikes_sparse_shape_list = get_sparse_from_binned_spikes(binned_spikes)
 
     data_dict = {

@@ -1,3 +1,4 @@
+"""Utils for loading and preprocessing IBL data."""
 import os 
 import sys
 import uuid
@@ -8,7 +9,6 @@ from pathlib import Path
 import multiprocessing
 from functools import partial
 from scipy.interpolate import interp1d
-
 from iblutil.numerical import ismember, bincount2D
 import brainbox.behavior.dlc as dlc
 from brainbox.io.one import SpikeSortingLoader, SessionLoader
@@ -726,7 +726,7 @@ def bin_behaviors(
 
 def prepare_data(one, eid, bwm_df, params, n_workers=os.cpu_count()):
     
-    # When merging probes we are interested in eids, not pids
+    # when merging probes we are interested in eids, not pids
     pids, probe_names = one.eid2pid(eid)
     print(f"Merge {len(probe_names)} probes for session eid: {eid}")
 
@@ -770,7 +770,8 @@ def prepare_data(one, eid, bwm_df, params, n_workers=os.cpu_count()):
 
 
 def align_spike_behavior(binned_spikes, binned_behaviors, beh_names, trials_mask=None):
-
+    """Function to verify trial alignment between neural and behavior data.
+    """
     target_mask = [1] * len(binned_spikes)
     for beh_name in beh_names:
         beh_mask = [1 if trial is not None else 0 for trial in binned_behaviors[beh_name]]
