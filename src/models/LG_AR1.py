@@ -17,14 +17,14 @@ class LG_AR1(object):
         self.rho_sigma = rho_sigma
         self.xi_sigma = xi_sigma
         self.eps_sigma = eps_sigma
-        self.theta_sigma = alpha_sigma
-        self.mu_sigma = beta_sigma
+        self.theta_sigma = theta_sigma
+        self.mu_sigma = mu_sigma
         self.seed = seed
     
-    def forward(d, n_samples=2000, is_low_snr=False):
+    def forward(self, d, n_samples=2000, is_low_snr=False):
         '''
         Args:
-            d: decoder estimates from single-trial/session decoder;
+            d: decoder outputs from single-trial/session decoder;
                for oracle model, use the ground truth behavior as d.
         '''
                 
@@ -76,7 +76,7 @@ class MultiSession_LG_AR1(LG_AR1):
         super().__init__()
         pass
     
-    def fit_empirical_priors(ds, ys, n_samples=2000, is_low_snr=False):
+    def fit_empirical_priors(self, ds, ys, n_samples=2000, is_low_snr=False):
         min_seq_len = np.min([len(y) for y in ys])
         ys = np.array([y[:min_seq_len] for y in ys]).T.squeeze()
         ds = np.array([d[:min_seq_len] for d in ds]).T.squeeze()
@@ -115,7 +115,7 @@ class MultiSession_LG_AR1(LG_AR1):
 
         return post_rho, post_theta, post_mu, post_xi_sigma, post_eps_sigma
     
-    def forward(test_d, train_ds, train_ys, n_samples=2000, is_low_snr=False):
+    def forward(self, test_d, train_ds, train_ys, n_samples=2000, is_low_snr=False):
         
         rho, theta, mu, xi, eps = self.fit_empirical_priors(
             train_ds, train_ys, n_samples, is_low_snr
