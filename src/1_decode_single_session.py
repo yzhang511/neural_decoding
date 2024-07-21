@@ -101,13 +101,13 @@ if model_class == "linear":
         raise NotImplementedError
     
 else:
-    search_space['optimizer']['lr'] = tune.grid_search([1e-3]) # tune.grid_search([1e-2, 1e-3])
-    search_space['optimizer']['weight_decay'] = tune.grid_search([1e-1]) # tune.grid_search([1, 1e-1, 1e-2, 1e-3])
+    search_space['optimizer']['lr'] = tune.grid_search([1e-2, 1e-3])
+    search_space['optimizer']['weight_decay'] = tune.grid_search([1, 1e-1, 1e-2, 1e-3])
     
     if model_class == "reduced_rank":
-        search_space['reduced_rank']['temporal_rank'] = tune.grid_search([2]) # tune.grid_search([2, 5, 10, 15])
-        search_space['tuner']['num_epochs'] = 100 # 500
-        search_space['training']['num_epochs'] = 500 # 800
+        search_space['reduced_rank']['temporal_rank'] = tune.grid_search([2, 5, 10, 15])
+        search_space['tuner']['num_epochs'] = 500
+        search_space['training']['num_epochs'] = 800
     elif model_class == "lstm":
         search_space['lstm']['lstm_hidden_size'] = tune.grid_search([128, 64])
         search_space['lstm']['lstm_n_layers'] = tune.grid_search([1, 3, 5])

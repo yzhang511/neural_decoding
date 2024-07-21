@@ -94,12 +94,12 @@ search_space['training']['device'] = torch.device(
 )
 
 # set up for hyperparameter sweep
-search_space['optimizer']['lr'] = tune.grid_search([1e-3])   # tune.grid_search([1e-2, 1e-3])
-search_space['optimizer']['weight_decay'] = tune.grid_search([1e-1]) # tune.grid_search([0, 1e-1, 1e-2, 1e-3, 1e-4])
+search_space['optimizer']['lr'] = tune.grid_search([1e-2, 1e-3])
+search_space['optimizer']['weight_decay'] = tune.grid_search([0, 1e-1, 1e-2, 1e-3, 1e-4])
 if model_class == "reduced_rank":
-    search_space['temporal_rank'] = tune.grid_search([2]) # tune.grid_search([2, 5, 10, 15, 20])
-    search_space['tuner']['num_epochs'] = 10 # 500
-    search_space['training']['num_epochs'] = 100 # 800
+    search_space['temporal_rank'] = tune.grid_search([2, 5, 10, 15, 20])
+    search_space['tuner']['num_epochs'] = 500
+    search_space['training']['num_epochs'] = 800
 else:
     raise NotImplementedError
     
