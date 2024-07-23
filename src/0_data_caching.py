@@ -18,7 +18,7 @@ from utils.dataset_utils import create_dataset, upload_dataset
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--base_path", type=str, default="EXAMPLE_PATH")
-ap.add_argument("--datasets", type=str, default="reproducible_ephys", choices=["reproducible-ephys", "brain-wide-map"])
+ap.add_argument("--datasets", type=str, default="reproducible-ephys", choices=["reproducible-ephys", "brain-wide-map"])
 ap.add_argument("--n_sessions", type=int, default=1)
 ap.add_argument("--n_workers", type=int, default=1)
 args = ap.parse_args()
