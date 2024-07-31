@@ -47,7 +47,10 @@ class LG_AR1(object):
             # observation process (linear-Gaussian)
             y = pm.Normal("obs", mu=mu+theta*x, sigma=eps, observed=d)
 
-            trace = pm.sample(n_samples, target_accept=0.95, tune=n_samples//10)  
+            trace = pm.sample(
+                n_samples, target_accept=0.95, tune=n_samples//10,
+                return_inferencedata=False, compute_convergence_checks=False
+            )  
 
             ppc = pm.sample_posterior_predictive(
                 trace, var_names=["obs", "state", "theta", "mu", "rho", "eps", "xi"], 
@@ -100,7 +103,10 @@ class MultiSession_LG_AR1(LG_AR1):
             # observation process (linear-Gaussian)
             y = pm.Normal("obs", mu=mu+theta*x, sigma=eps, observed=ds)
 
-            trace = pm.sample(n_samples, target_accept=0.95, tune=n_samples//10)  
+            trace = pm.sample(
+                n_samples, target_accept=0.95, tune=n_samples//10,
+                return_inferencedata=False, compute_convergence_checks=False
+            )  
 
             ppc = pm.sample_posterior_predictive(
                 trace, var_names=["obs", "state", "theta", "mu", "rho", "eps", "xi"], 
@@ -129,7 +135,10 @@ class MultiSession_LG_AR1(LG_AR1):
             # observation process (linear-Gaussian)
             y = pm.Normal("obs", mu=mu+theta*x, sigma=eps, observed=test_d.squeeze())
 
-            trace = pm.sample(n_samples, target_accept=0.95, tune=n_samples//10)  
+            trace = pm.sample(
+                n_samples, target_accept=0.95, tune=n_samples//10,
+                return_inferencedata=False, compute_convergence_checks=False
+            )  
 
             ppc = pm.sample_posterior_predictive(
                 trace, var_names=["obs", "state"], random_seed=self.seed
