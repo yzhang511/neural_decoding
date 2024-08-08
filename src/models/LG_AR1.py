@@ -21,7 +21,7 @@ class LG_AR1(object):
         self.mu_sigma = mu_sigma
         self.seed = seed
     
-    def forward(self, d, n_samples=2000, is_low_snr=False):
+    def forward(self, d, is_oracle=False, n_samples=2000, is_low_snr=False):
         '''
         Args:
             d: decoder outputs from single-trial/session decoder;
@@ -60,7 +60,10 @@ class LG_AR1(object):
         post_rho = ppc["rho"].mean(0)[0]
         post_theta = ppc["theta"].mean(0)[0]
         post_mu = ppc["mu"].mean(0)[0]
-        post_d = ppc["obs"].mean(0)
+        if is_oracle:
+            post_d = post_mu + post_theta * ppc["state"].mean(0)
+        else:
+            post_d = ppc["obs"].mean(0)
 
         return post_d, post_rho, post_theta, post_mu
     
