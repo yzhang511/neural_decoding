@@ -23,7 +23,6 @@ def tune_decoder(
     
     run_config = RunConfig(
         storage_path=save_dir,
-        local_dir=save_dir,
         checkpoint_config=CheckpointConfig(
             num_to_keep=2,
             checkpoint_score_attribute=metric,

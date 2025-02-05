@@ -3,12 +3,12 @@ seed: 42
 dirs:
   checkpoint_dir: checkpoints  
   log_dir: train_logs  
-  data_dir: cached_ibl_data
+  data_dir: datasets/processed
   output_dir: results
 
 training:
-  num_epochs: 500
-  batch_size: 8
+  num_epochs: 10
+  batch_size: 16
 
   device: cpu
   metric: val_loss

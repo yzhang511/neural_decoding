@@ -302,7 +302,7 @@ def extract_gaze(session):
 
 def get_stim_trial_splits(stim_dict, split_ratios=[0.7, 0.1, 0.2]):
     if stim_dict is None or len(stim_dict["timestamps"]) == 0:
-        return {"train": None, "valid": None, "test": None}
+        return {"train": None, "val": None, "test": None}
     import math
 
     train_boundary = math.floor(len(stim_dict["timestamps"]) * split_ratios[0])
@@ -314,7 +314,7 @@ def get_stim_trial_splits(stim_dict, split_ratios=[0.7, 0.1, 0.2]):
     valid_trials = stim_trials[train_boundary: valid_boundary - 1] 
     test_trials = stim_trials[valid_boundary: test_boundary - 1] 
     
-    return {"train": train_trials, "valid": valid_trials, "test": test_trials}
+    return {"train": train_trials, "val": valid_trials, "test": test_trials}
 
 def get_behavior_region(running_speed_dict, pupil_dict=None, gaze_dict=None):
     # extract session start and end times

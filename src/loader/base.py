@@ -39,13 +39,19 @@ def bin_spike_count(
     units, 
     start, 
     end, 
-    length=None,
     binsize=0.01, 
+    length=None,
     n_workers=1
 ):
+
     num_chunk = len(start)
     if length is None:
-        length = int(min(end - start))
+        min_length = min(end - start)
+        if min_length < 1:
+            length = round(min_length, 1)
+        else:
+            length = int(min_length)
+    print(f"Min sequence length: {length}s")
     num_bin = int(np.ceil(length / binsize))
 
     unit_index = np.unique(units)
@@ -72,9 +78,9 @@ def bin_spike_count(
     spike_count = np.zeros((num_chunk, unit_count, num_bin))
 
     chunks = list(zip(np.arange(num_chunk), start, end))
-    
+
     if n_workers == 1:
-        for chunk in chunks:
+        for chunk in tqdm(chunks):
             res = count_spike_per_chunk(chunk)
             spike_count[res[-1], res[1], :] += res[0]
     else:
@@ -84,21 +90,24 @@ def bin_spike_count(
                     pbar.update()
                     spike_count[res[-1], res[1], :] += res[0]
             pbar.close()
-
     return spike_count
-
+    
 def bin_target(
     times, 
     values, 
     start, 
     end, 
     binsize=0.01, 
-    length=1,
+    length=None,
     n_workers=1, 
 ):  
     num_chunk = len(start)
     if length is None:
-        length = int(min(end - start))
+        min_length = min(end - start)
+        if min_length < 1:
+            length = round(min_length, 1)
+        else:
+            length = int(min_length)
     num_bin = int(np.ceil(length / binsize))
 
     start_ids = np.searchsorted(times, start, side="right")
@@ -181,9 +190,9 @@ class BaseDataset(Dataset):
         data_dir="./processed", 
         split="train", 
         device="cpu",
-        binsize=0.02,
-        length=1,
-        region=None,
+        binsize=0.01,
+        length=None,
+        region="all",
         n_workers=1,
     ):
         """
@@ -210,7 +219,10 @@ class BaseDataset(Dataset):
         elif target in CLASSIFICATION:
             start, end = session_dict["splits"][target][split].T
             target_name = "gabors_orientation" if target == "gabors" else "orientation"
+            timestamps = session_dict["data"][target]["timestamps"]
             behavior = session_dict["data"][target][target_name]
+            mask = np.any((timestamps[:, None] >= start) & (timestamps[:, None] < end), axis=1)
+            behavior = behavior[mask]
             valid_mask = ~np.isnan(behavior)
             one_hot_encoder = preprocessing.OneHotEncoder(handle_unknown="ignore")
             behavior = one_hot_encoder.fit_transform(behavior.reshape(-1, 1)).toarray()
@@ -256,9 +268,9 @@ class SingleSessionDataModule(LightningDataModule):
         self.data_dir = config["dirs"]["data_dir"]
         self.session_id = config["session_id"]
         self.target = config["target"]
-        self.region = config.get("region", None)
-        self.binsize = config.get("binsize", 0.02)
-        self.length = config.get("length", 1)
+        self.region = config.get("region", "all")
+        self.binsize = config.get("binsize", 0.01)
+        self.length = config.get("length", None)
         self.device = config["training"].get("device", "cpu")
         self.batch_size = config.get("training", {}).get("batch_size", 16)
         self.n_workers = config.get("data", {}).get("num_workers", 1)

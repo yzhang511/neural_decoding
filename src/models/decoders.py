@@ -76,7 +76,7 @@ class BaselineDecoder(LightningModule):
         optimizer = torch.optim.AdamW(
             self.parameters(), lr = self.learning_rate, weight_decay = self.weight_decay
         )
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val_loss"}
 
     
@@ -270,7 +270,7 @@ class BaselineMultiSessionDecoder(LightningModule):
         optimizer = torch.optim.AdamW(
             self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay
         )
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val_loss"}
 
 

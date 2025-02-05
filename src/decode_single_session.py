@@ -26,6 +26,22 @@ from utils.config import config_from_kwargs, update_config
 
 REGRESSION = ["running_speed", "gaze", "pupil"]
 CLASSIFICATION = ["gabors", "static_gratings", "drifting_gratings"]
+LENGTH_LOOKUP = {
+    "gabors": 0.2, 
+    "static_gratings": 0.2, 
+    "drifting_gratings": 1., 
+    "running_speed": 1., 
+    "gaze": 1., 
+    "pupil": 1.
+}
+OUTPUT_SIZE_LOOKUP = {
+    "gabors": 2, 
+    "static_gratings": 6, 
+    "drifting_gratings": 8, 
+    "running_speed": 1, 
+    "gaze": 1, 
+    "pupil": 1
+}
 
 """
 -----------
@@ -35,10 +51,7 @@ USER INPUTS
 ap = argparse.ArgumentParser()
 ap.add_argument("--base_path", type=str, default="./")
 ap.add_argument("--session_id", type=str)
-ap.add_argument(
-    "--target", type=str, default="gabors", 
-    choices=REGRESSION + CLASSIFICATION
-)
+ap.add_argument("--target", type=str, default="gabors", choices=REGRESSION+CLASSIFICATION)
 ap.add_argument("--region", type=str, default="all")
 ap.add_argument("--method", type=str, default="linear", choices=["linear", "reduced_rank", "mlp", "lstm"])
 ap.add_argument("--n_workers", type=int, default=1)
@@ -54,9 +67,6 @@ kwargs = {"model": "include:src/configs/decoder.yaml"}
 config = config_from_kwargs(kwargs)
 config = update_config("src/configs/decoder.yaml", config)
 
-"""
-TODO: Set config["model"]["output_size"] for each target.
-"""
 if args.target in REGRESSION:
     config = update_config("src/configs/reg_trainer.yaml", config)
 elif args.target in CLASSIFICATION:
@@ -88,6 +98,8 @@ print(f"Launch single-session {model_class} decoder:")
 search_space = config.copy()
 search_space["session_id"] = args.session_id
 search_space["target"] = args.target
+search_space["length"] = LENGTH_LOOKUP[args.target]
+search_space["output_size"] = OUTPUT_SIZE_LOOKUP[args.target]
 search_space["region"] = args.region if args.region != "all" else None
 search_space["training"]["device"] = torch.device(
     "cuda" if np.logical_and(torch.cuda.is_available(), config.training.device == "gpu") else "cpu"
@@ -104,13 +116,16 @@ if model_class == "linear":
     else:
         raise NotImplementedError
 else:
-    search_space["optimizer"]["lr"] = tune.grid_search([1e-2, 1e-3])
-    search_space["optimizer"]["weight_decay"] = tune.grid_search([1, 1e-1, 1e-2, 1e-3])
+    # search_space["optimizer"]["lr"] = tune.grid_search([1e-2, 1e-3])
+    # search_space["optimizer"]["weight_decay"] = tune.grid_search([1, 1e-1, 1e-2, 1e-3])
+    search_space["optimizer"]["lr"] = tune.grid_search([1e-3])
+    search_space["optimizer"]["weight_decay"] = tune.grid_search([1e-2])
     
     if model_class == "reduced_rank":
-        search_space["reduced_rank"]["temporal_rank"] = tune.grid_search([2, 5, 10, 15])
-        search_space["tuner"]["num_epochs"] = 500
-        search_space["training"]["num_epochs"] = 800
+        # search_space["reduced_rank"]["temporal_rank"] = tune.grid_search([2, 5, 10, 15])
+        search_space["reduced_rank"]["temporal_rank"] = tune.grid_search([2])
+        search_space["tuner"]["num_epochs"] = 10 # 500
+        search_space["training"]["num_epochs"] = 10 # 800
     elif model_class == "lstm":
         search_space["lstm"]["lstm_hidden_size"] = tune.grid_search([128, 64])
         search_space["lstm"]["lstm_n_layers"] = tune.grid_search([1, 3, 5])
