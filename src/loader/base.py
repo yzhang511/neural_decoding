@@ -17,7 +17,10 @@ from torch.utils.data import Dataset, DataLoader
 from lightning.pytorch import LightningDataModule
 from lightning.pytorch.utilities import CombinedLoader
 
-from from utils.registry import target_registry
+from utils.registry import target_registry
+
+REGRESSION = ["running_speed", "gaze", "pupil"]
+CLASSIFICATION = ["gabors", "static_gratings", "drifting_gratings"]
 
 logging.basicConfig(level=logging.INFO)
 
@@ -90,78 +93,85 @@ def bin_target(
     start, 
     end, 
     binsize=0.01, 
-    length=None,
+    length=1,
     n_workers=1, 
-):
-    
+):  
     num_chunk = len(start)
     if length is None:
         length = int(min(end - start))
     num_bin = int(np.ceil(length / binsize))
-    
+
     start_ids = np.searchsorted(times, start, side="right")
     end_ids = np.searchsorted(times, end, side="left")
-    times_in = [times[s_id:e_id] for s_id, e_id in zip(start_ids, end_ids)]
-    values_in = [values[s_id:e_id] for s_id, e_id in zip(start_ids, end_ids)]
+    _times_list = [times[s_id:e_id] for s_id, e_id in zip(start_ids, end_ids)]
+    _vals_list = [values[s_id:e_id] for s_id, e_id in zip(start_ids, end_ids)]
 
-    times_out = [None for _ in range(len(times_in))]
-    values_out = [None for _ in range(len(times_in))]
-    valid_mask = [None for _ in range(len(times_in))]
-    skip_reasons = [None for _ in range(len(times_in))]
+    times_list = [None for _ in range(len(_times_list))]
+    vals_list = [None for _ in range(len(_times_list))]
+    valid_mask = [None for _ in range(len(_times_list))]
+    skip_reason = [None for _ in range(len(_times_list))]
 
     @globalize
     def interpolate_func(target):
-        chunk_id, time, val = target
+        chunk_idx, target_time, target_val = target
+        target_time, target_val = target_time.squeeze(), target_val.squeeze()
 
         is_valid, x_interp, y_interp = False, None, None
         
-        if np.sum(np.isnan(val)) > 0:
-            skip_reason = "nans in target"
-            return chunk_id, is_valid, x_interp, y_interp, skip_reason
-        if np.isnan(start[chunk_id]) or np.isnan(end[chunk_id]):
-            skip_reason = "nans in timestamps"
-            return chunk_id, is_valid, x_interp, y_interp, skip_reason
-        if np.abs(start[chunk_id] - time[0]) > binsize:
-            skip_reason = "target starts too late"
-            return chunk_id, is_valid, x_interp, y_interp, skip_reason
-        if np.abs(end[chunk_id] - time[-1]) > binsize:
-            skip_reason = "target ends too early"
-            return chunk_id, is_valid, x_interp, y_interp, skip_reason
+        if len(target_val) == 0:
+            skip_reason = "target data not present"
+            return chunk_idx, is_valid, x_interp, y_interp, skip_reason
+        if np.sum(np.isnan(target_val)) > 0:
+            skip_reason = "nans in target data"
+            return chunk_idx, is_valid, x_interp, y_interp, skip_reason
+        if np.isnan(start[chunk_idx]) or np.isnan(end[chunk_idx]):
+            skip_reason = "bad interval data"
+            return chunk_idx, is_valid, x_interp, y_interp, skip_reason
+        if np.abs(start[chunk_idx] - target_time[0]) > binsize:
+            skip_reason = "target data starts too late"
+            return chunk_idx, is_valid, x_interp, y_interp, skip_reason
+        if np.abs(end[chunk_idx] - target_time[-1]) > binsize:
+            skip_reason = "target data ends too early"
+            return chunk_idx, is_valid, x_interp, y_interp, skip_reason
 
         is_valid, skip_reason = True, None
-        x_interp = np.linspace(start[chunk_id] + binsize, end[chunk_id], num_bin)
-        if len(val.shape) > 1 and val.shape[1] > 1:
+        x_interp = np.linspace(start[chunk_idx] + binsize, end[chunk_idx], num_bin)
+
+        if len(target_val.shape) > 1 and target_val.shape[1] > 1:
             y_interp_list = []
-            for n in range(val.shape[1]):
-                y_interp_list.append(interp1d(time, val[:,n], kind="linear", fill_value="extrapolate")(x_interp))
-            y_interp = np.hstack([y[:,None] for y in y_interp_list])
+            for n in range(target_val.shape[1]):
+                y_interp_list.append(
+                    interp1d(
+                        target_time, target_val[:,n], kind="linear", fill_value="extrapolate"
+                    )(x_interp)
+                )
+            y_interp = np.hstack([y[:, None] for y in y_interp_list])
         else:
-            y_interp = interp1d(time, val, kind="linear", fill_value="extrapolate")(x_interp)
-        return chunk_id, is_valid, x_interp, y_interp, skip_reason
+            y_interp = interp1d(
+                target_time, target_val, kind="linear", fill_value="extrapolate"
+            )(x_interp)
+        return chunk_idx, is_valid, x_interp, y_interp, skip_reason
+
+    with multiprocessing.Pool(processes=n_workers) as p:
+        targets = list(zip(np.arange(num_chunk), _times_list, _vals_list))
+        with tqdm(total=num_chunk) as pbar:
+            for res in p.imap_unordered(interpolate_func, targets):
+                pbar.update()
+                valid_mask[res[0]] = res[1]
+                times_list[res[0]] = res[2]
+                vals_list[res[0]] = res[3]
+                skip_reason[res[0]] = res[-1]
+        pbar.close()
+        p.close()
+
+    times_out = np.array(times_list)[valid_mask]
+    values_out = np.array(vals_list)[valid_mask]
+    times_out = np.array([x.flatten() for x in times_out])
+    values_out = np.array([x.flatten() for x in values_out])
+    valid_mask = np.array(valid_mask)
     
-    chunks = list(zip(np.arange(num_chunk), times_in, values_in))
-
-    if n_workers == 1:
-        for chunk in tqdm(chunks, total=num_chunk):
-            res = interpolate_func(chunk)
-            valid_mask[res[0]] = res[1]
-            times_out[res[0]] = res[2]
-            values_out[res[0]] = res[3]
-            skip_reasons[res[0]] = res[-1]
-    else:
-        with multiprocessing.Pool(processes=n_workers) as p:
-            with tqdm(total=num_chunk) as pbar:
-                for res in p.imap_unordered(interpolate_func, chunks):
-                    pbar.update()
-                    valid_mask[res[0]] = res[1]
-                    times_out[res[0]] = res[2]
-                    values_out[res[0]] = res[3]
-                    skip_reasons[res[0]] = res[-1]
-            pbar.close()
-            p.close()
-
-    return times_out, values_out, np.array(valid_mask), skip_reasons  
-
+    return times_out, values_out, valid_mask, skip_reason
+  
 
 class BaseDataset(Dataset):
     def __init__(
@@ -170,77 +180,72 @@ class BaseDataset(Dataset):
         target, 
         data_dir="./processed", 
         split="train", 
+        device="cpu",
+        binsize=0.02,
+        length=1,
         region=None,
-        device="cpu", 
+        n_workers=1,
     ):
-        
+        """
+        TO DO: Filter by brain region.
+        """
+
         with open(f"{data_dir}/{session_id}.pkl", "rb") as f:
             session_dict = pickle.load(f)
+
+        # Load behavior first because we need to filter out invalid trials
+        if target in REGRESSION:
+            start, end = session_dict["splits"]["free_behavior_splits"][split].T
+            _, behavior, valid_mask, _ = bin_target(
+                session_dict["data"][target]["timestamps"], 
+                session_dict["data"][target][target], 
+                start=start,
+                end=end,
+                binsize=binsize,
+                length=length,
+                n_workers=n_workers
+            )
+            scaler = preprocessing.MinMaxScaler().fit(behavior)
+            behavior = scaler.transform(behavior) 
+        elif target in CLASSIFICATION:
+            start, end = session_dict["splits"][target][split].T
+            target_name = "gabors_orientation" if target == "gabors" else "orientation"
+            behavior = session_dict["data"][target][target_name]
+            valid_mask = ~np.isnan(behavior)
+            one_hot_encoder = preprocessing.OneHotEncoder(handle_unknown="ignore")
+            behavior = one_hot_encoder.fit_transform(behavior.reshape(-1, 1)).toarray()
+        else:
+            raise ValueError(f"Target {target} not supported.")
 
         spike_count = bin_spike_count(
             session_dict["data"]["spikes"], 
             session_dict["data"]["units"]["unit_index"], 
-            start=session_dict["splits"]["drifting_gratings"]["train"].T[0],
-            end=session_dict["splits"]["drifting_gratings"]["train"].T[1],
-            binsize=0.02,
+            start=start,
+            end=end,
+            binsize=binsize,
+            length=length,
+            n_workers=n_workers
         )
 
-        target = bin_target(
-            session_dict["data"][target]["timestamps"], 
-            session_dict["data"][target][target], 
-            # start=, 
-            # end=, 
-            binsize=0.02,
-        )
-
-        self.train_spike = get_binned_spikes(dataset['train'])
-        self.train_behavior = np.array(dataset['train'][beh_name])
-        self.neuron_regions = np.array(dataset['train']['cluster_regions'])[0]
+        # Filter out invalid trials
+        spike_count = spike_count[valid_mask]
+        self.start = start[valid_mask]
+        self.end = end[valid_mask]
         
-        if split == 'val':
-            try:
-                # if 'val' exists, load pre-partitioned validation set
-                self.spike_data = get_binned_spikes(dataset[split])
-            except:
-                # if not, partition training data into 'train' and 'val'
-                tmp_dataset = dataset['train'].train_test_split(test_size=0.1, seed=seed)
-                self.train_spike = get_binned_spikes(tmp_dataset['train'])
-                self.spike_data = get_binned_spikes(tmp_dataset['test'])
-        else:
-            self.spike_data = get_binned_spikes(dataset[split])
-            
-        if region and region != 'all':
-            neuron_idxs = np.argwhere(self.neuron_regions == region).flatten()
-            self.spike_data = self.spike_data[:,:,neuron_idxs]
-            self.regions = np.array([region] * len(self.spike_data))
-        else:
-            self.regions = np.array(['all'] * len(self.spike_data))
+        self.num_trials, self.num_timesteps, self.num_units = spike_count.shape
+        self.sessions = np.array([session_id] * self.num_trials)
+        self.regions = np.array([region] * self.num_trials)
 
-        self.sessions = np.array([eid] * len(self.spike_data))
-        self.n_t_steps, self.n_units = self.spike_data.shape[1], self.spike_data.shape[2]
-
-        self.behavior = np.array(dataset[split][beh_name])
-
-        if target == 'clf':
-            enc = preprocessing.OneHotEncoder(handle_unknown='ignore')
-            self.behavior = enc.fit_transform(self.behavior.reshape(-1, 1)).toarray()
-        elif target == 'reg' or self.behavior.shape[1] == self.n_t_steps:
-            self.scaler = preprocessing.StandardScaler().fit(self.train_behavior)
-            self.behavior = self.scaler.transform(self.behavior) 
-
-        if np.isnan(self.behavior).sum() != 0:
-            self.behavior[np.isnan(self.behavior)] = np.nanmean(self.behavior)
-            print(f'{beh_name} in session {eid} contains NaNs; interpolate with trial-average.')
-
-        self.spike_data = to_tensor(self.spike_data, device).double()
-        self.behavior = to_tensor(self.behavior, device).double()
+        self.spike_count = to_tensor(spike_count, device).double()
+        self.behavior = to_tensor(behavior, device).double()
   
     def __len__(self):
-        return len(self.spike_data)
+        return self.num_trials
 
     def __getitem__(self, trial_idx):
         return (
-            self.spike_data[trial_idx], self.behavior[trial_idx], self.regions[trial_idx], self.sessions[trial_idx]
+            self.spike_count[trial_idx], self.behavior[trial_idx], 
+            self.regions[trial_idx], self.sessions[trial_idx]
         )
 
     
@@ -248,33 +253,35 @@ class SingleSessionDataModule(LightningDataModule):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.data_dir = config['dirs']['data_dir']
-        self.eid = config['eid']
-        self.beh_name = config['target']
-        self.target = config['model']['target']
-        self.region = config['region']
-        self.device = config['training']['device']
-        self.load_local = config['training']['load_local']
-        self.batch_size = config['training']['batch_size']
-        self.n_workers = config['data']['num_workers']
+        self.data_dir = config["dirs"]["data_dir"]
+        self.session_id = config["session_id"]
+        self.target = config["target"]
+        self.region = config.get("region", None)
+        self.binsize = config.get("binsize", 0.02)
+        self.length = config.get("length", 1)
+        self.device = config["training"].get("device", "cpu")
+        self.batch_size = config.get("training", {}).get("batch_size", 16)
+        self.n_workers = config.get("data", {}).get("num_workers", 1)
 
     def setup(self, stage=None):
         """Call this function to load and preprocess data."""
         self.train = BaseDataset(
-            self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, 'train', self.region, self.load_local
+            self.session_id, self.target, self.data_dir, "train", 
+            self.device, self.binsize, self.length, self.region, self.n_workers
         )
         self.val = BaseDataset(
-            self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, 'val', self.region, self.load_local
+            self.session_id, self.target, self.data_dir, "val", 
+            self.device, self.binsize, self.length, self.region, self.n_workers
         )
         self.test = BaseDataset(
-            self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, 'test', self.region, self.load_local
+            self.session_id, self.target, self.data_dir, "test", 
+            self.device, self.binsize, self.length, self.region, self.n_workers
         )
         self.config.update({
-            'n_units': self.train.n_units, 'n_t_steps': self.train.n_t_steps,
-            'eid': self.eid, 'region': self.region
+            "num_units": self.train.num_units, 
+            "num_timesteps": self.train.num_timesteps,
+            "session_id": self.session_id, 
+            "region": self.region
         })
 
     def train_dataloader(self):
@@ -289,17 +296,17 @@ class SingleSessionDataModule(LightningDataModule):
 
 
 class MultiSessionDataModule(LightningDataModule):
-    def __init__(self, eids, configs):
+    def __init__(self, session_ids, configs):
         """Load and preprocess multi-session datasets.
             
         Args:
-            eids: a list of session IDs.
+            session_ids: a list of session IDs.
             configs: a list of data configs for each session.
         """
         super().__init__()
-        self.eids = eids
+        self.session_ids = session_ids
         self.configs = configs
-        self.batch_size = configs[0]['training']['batch_size']
+        self.batch_size = configs[0].get("training", {}).get("batch_size", 16)
 
     def setup(self, stage=None):
         """Call this function to load and preprocess data."""

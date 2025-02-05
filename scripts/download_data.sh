@@ -1,13 +1,15 @@
 #!/bin/bash
-
-#SBATCH -A bcxj-delta-cpu 
-#SBATCH --job-name="data"
-#SBATCH --output="data.%j.out"
-#SBATCH --partition=cpu
-#SBATCH -c 2
-#SBATCH --mem 100000
-#SBATCH -t 0-1
+#SBATCH --account=stats             
+#SBATCH --job-name="download"
+#SBATCH --output="download.%j.out"
+#SBATCH --nodes=1
+#SBATCH --tasks-per-node=1
+#SBATCH --cpus-per-task=1        
+#SBATCH --mem-per-cpu=10G
+#SBATCH --time=0-1:00
 #SBATCH --export=ALL
+
+module load anaconda
 
 . ~/.bashrc
 echo $TMPDIR
@@ -18,6 +20,6 @@ session_id=${1}
 cd ..
 python src/allen_visual_behavior_neuropixels/download_data.py \
     --session_id $session_id \
-    --output_dir /scratch/bdtg/yzhang39/allen/datasets/raw/
+    --output_dir /burg/stats/users/yz4123/allen/datasets/raw/
 
 conda deactivate

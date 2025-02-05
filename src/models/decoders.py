@@ -28,14 +28,14 @@ class BaselineDecoder(LightningModule):
                 output_size: behavior dimension. 
         """
         super().__init__()
-        self.n_units = config['n_units']
-        self.n_t_steps = config['n_t_steps']
-        self.learning_rate = config['optimizer']['lr']
-        self.weight_decay = config['optimizer']['weight_decay']
-        self.target = config['model']['target']
-        self.output_size = config['model']['output_size']
-        
-        self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput='uniform_average')
+        self.n_units = config["num_units"]
+        self.n_t_steps = config["num_timesteps"]
+        self.learning_rate = config["optimizer"]["lr"]
+        self.weight_decay = config["optimizer"]["weight_decay"]
+        self.target = config["model"]["target"]
+        self.output_size = config["model"]["output_size"]
+
+        self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput="uniform_average")
         self.accuracy = Accuracy(task="multiclass", num_classes=self.output_size)
 
     def forward(self, x):
@@ -44,23 +44,23 @@ class BaselineDecoder(LightningModule):
     def training_step(self, batch, batch_idx):
         x, y, _, _ = batch
         pred = self(x)
-        if self.target == 'reg':
+        if self.target == "reg":
             loss = F.mse_loss(pred, y)
-        elif self.target == 'clf':
+        elif self.target == "clf":
             loss = torch.nn.CrossEntropyLoss()(pred, y)
         else:
             raise NotImplementedError
-        self.log('loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     def validation_step(self, batch, batch_idx, print_str="val"):
         x, y, _, _ = batch
         pred = self(x)
-        if self.target == 'reg':
+        if self.target == "reg":
             loss = F.mse_loss(pred, y)
             self.r2_score(pred.flatten(), y.flatten())
             self.log(f"{print_str}_metric", self.r2_score, prog_bar=True, logger=True, sync_dist=True)
-        elif self.target == 'clf':
+        elif self.target == "clf":
             loss = torch.nn.CrossEntropyLoss()(pred, y)
             self.accuracy(F.softmax(pred, dim=1).argmax(1), y.argmax(1))
             self.log(f"{print_str}_metric", self.accuracy, prog_bar=True, logger=True, sync_dist=True)
@@ -70,14 +70,14 @@ class BaselineDecoder(LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
-        return self.validation_step(batch, batch_idx, print_str='test')
+        return self.validation_step(batch, batch_idx, print_str="test")
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
             self.parameters(), lr = self.learning_rate, weight_decay = self.weight_decay
         )
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
-        return {'optimizer': optimizer, 'lr_scheduler': scheduler, 'monitor': 'val_loss'}
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer)
+        return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val_loss"}
 
     
 class ReducedRankDecoder(BaselineDecoder):
@@ -94,15 +94,15 @@ class ReducedRankDecoder(BaselineDecoder):
             b: intercept term (output_size,).
         """
         super().__init__(config)
-        self.temporal_rank = config['reduced_rank']['temporal_rank']
+        self.temporal_rank = config["reduced_rank"]["temporal_rank"]
         self.U = torch.nn.Parameter(torch.randn(self.n_units, self.temporal_rank))
         self.V = torch.nn.Parameter(torch.randn(self.temporal_rank, self.n_t_steps, self.output_size))
         self.b = torch.nn.Parameter(torch.randn(self.output_size,))
         self.double()
 
     def forward(self, x):
-        self.B = torch.einsum('nr,rtd->ntd', self.U, self.V)
-        pred = torch.einsum('ntd,ktn->kd', self.B, x)
+        self.B = torch.einsum("nr,rtd->ntd", self.U, self.V)
+        pred = torch.einsum("ntd,ktn->kd", self.B, x)
         pred += self.b
         return pred
 
@@ -117,8 +117,8 @@ class MLPDecoder(BaselineDecoder):
                 drop_out: drop out ratio.
         """
         super().__init__(config)
-        self.hidden_size = tuple_type(config['mlp']['mlp_hidden_size'])
-        self.drop_out = config['mlp']['drop_out']
+        self.hidden_size = tuple_type(config["mlp"]["mlp_hidden_size"])
+        self.drop_out = config["mlp"]["drop_out"]
         
         self.input_layer = torch.nn.Linear(self.n_units, self.hidden_size[0])
         self.hidden_lower = torch.nn.ModuleList()
@@ -160,10 +160,10 @@ class LSTMDecoder(BaselineDecoder):
                 drop_out: drop out ratio.
         """
         super().__init__(config)
-        self.lstm_hidden_size = config['lstm']['lstm_hidden_size']
-        self.n_layers = config['lstm']['lstm_n_layers']
-        self.hidden_size = tuple_type(config['lstm']['mlp_hidden_size'])
-        self.drop_out = config['lstm']['drop_out']
+        self.lstm_hidden_size = config["lstm"]["lstm_hidden_size"]
+        self.n_layers = config["lstm"]["lstm_n_layers"]
+        self.hidden_size = tuple_type(config["lstm"]["mlp_hidden_size"])
+        self.drop_out = config["lstm"]["drop_out"]
 
         self.lstm = torch.nn.LSTM(
             input_size=self.n_units,
@@ -209,15 +209,15 @@ class BaselineMultiSessionDecoder(LightningModule):
                 output_size: behavior dimension. 
         """
         super().__init__()
-        self.n_sess = len(config['n_units'])
-        self.n_units = config['n_units']
-        self.n_t_steps = config['n_t_steps']
-        self.target = config['model']['target']
-        self.output_size = config['model']['output_size']
-        self.learning_rate = config['optimizer']['lr']
-        self.weight_decay = config['optimizer']['weight_decay']
+        self.n_sess = len(config["num_units"])
+        self.n_units = config["num_units"]
+        self.n_t_steps = config["num_timesteps"]
+        self.target = config["model"]["target"]
+        self.output_size = config["model"]["output_size"]
+        self.learning_rate = config["optimizer"]["lr"]
+        self.weight_decay = config["optimizer"]["weight_decay"]
 
-        self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput='uniform_average')
+        self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput="uniform_average")
         self.accuracy = Accuracy(task="multiclass", num_classes=self.output_size)
 
     def forward(self, x):
@@ -232,14 +232,14 @@ class BaselineMultiSessionDecoder(LightningModule):
             # each batch consists of data from same session and region
             pred = self(x, eid[0], region[0])
             loss[idx] = torch.nn.MSELoss()(pred, y)
-            if self.target == 'reg':
+            if self.target == "reg":
                 loss[idx] = torch.nn.MSELoss()(pred, y)
-            elif self.target == 'clf':
+            elif self.target == "clf":
                 loss[idx] = torch.nn.CrossEntropyLoss()(pred, y)
             else:
                 raise NotImplementedError
         loss = torch.mean(loss)
-        self.log('loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+        self.log("loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
         return loss
 
     def validation_step(self, batch, batch_idx, print_str="val"):
@@ -250,10 +250,10 @@ class BaselineMultiSessionDecoder(LightningModule):
             # each batch has len(batch) eids and regions but we only need one string for each entry
             # each batch consists of data from same session and region
             pred = self(x, eid[0], region[0])
-            if self.target == 'reg':
+            if self.target == "reg":
                 loss[idx] = torch.nn.MSELoss()(pred, y)
                 metric[idx] = self.r2_score(pred.flatten(), y.flatten())
-            elif self.target == 'clf':
+            elif self.target == "clf":
                 loss = torch.nn.CrossEntropyLoss()(pred, y)
                 metric[idx] = self.accuracy(F.softmax(pred, dim=1).argmax(1), y.argmax(1))
             else:
@@ -264,14 +264,14 @@ class BaselineMultiSessionDecoder(LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
-        return self.validation_step(batch, batch_idx, print_str='test')
+        return self.validation_step(batch, batch_idx, print_str="test")
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
-            self.parameters(), lr = self.learning_rate, weight_decay = self.weight_decay
+            self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay
         )
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
-        return {'optimizer': optimizer, 'lr_scheduler': scheduler, 'monitor': 'val_loss'}
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer)
+        return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val_loss"}
 
 
 class MultiSessionReducedRankDecoder(BaselineMultiSessionDecoder):
@@ -290,9 +290,9 @@ class MultiSessionReducedRankDecoder(BaselineMultiSessionDecoder):
             bs: a list of intercept terms, e.g., [(output_size,), (output_size,), ...].
         """
         super().__init__(config)
-        self.temporal_rank = config['temporal_rank']
-        self.eid_to_indx = config['eid_to_indx']
-        self.n_units = config['n_units']
+        self.temporal_rank = config["temporal_rank"]
+        self.eid_to_indx = config["eid_to_indx"]
+        self.n_units = config["num_units"]
 
         self.Us = torch.nn.ParameterList(
             [torch.nn.Parameter(torch.randn(n_units, self.temporal_rank)) for n_units in self.n_units]
@@ -305,8 +305,8 @@ class MultiSessionReducedRankDecoder(BaselineMultiSessionDecoder):
 
     def forward(self, x, eid, region):
         idx = self.eid_to_indx[eid]
-        B = torch.einsum('nr,rtd->ntd', self.Us[idx], self.V)
-        pred = torch.einsum('ntd,ktn->kd', B, x)
+        B = torch.einsum("nr,rtd->ntd", self.Us[idx], self.V)
+        pred = torch.einsum("ntd,ktn->kd", B, x)
         pred += self.bs[idx]
         return pred
     
@@ -331,11 +331,11 @@ class MultiRegionReducedRankDecoder(BaselineMultiSessionDecoder):
             bs: a list of intercept terms, e.g., [(output_size,), (output_size,), ...].
         """
         super().__init__(config)
-        self.temporal_rank = config['temporal_rank']
-        self.global_basis_rank = config['global_basis_rank']
-        self.n_regions = config['n_regions']
-        self.region_to_indx = config['region_to_indx']
-        self.eid_region_to_indx = config['eid_region_to_indx']
+        self.temporal_rank = config["temporal_rank"]
+        self.global_basis_rank = config["global_basis_rank"]
+        self.n_regions = config["n_regions"]
+        self.region_to_indx = config["region_to_indx"]
+        self.eid_region_to_indx = config["eid_region_to_indx"]
 
         self.Us = torch.nn.ParameterList(
             [torch.nn.Parameter(torch.randn(n_units, self.temporal_rank)) for n_units in self.n_units]
@@ -353,7 +353,7 @@ class MultiRegionReducedRankDecoder(BaselineMultiSessionDecoder):
         self.Vs = torch.einsum("jrl,ltp->jrtp", self.A, self.B)
         U, V = self.Us[idx], self.Vs[region_idx].squeeze()
         W = torch.einsum("nr,rtp->ntp", U, V)        
-        pred = torch.einsum('ntp,ktn->kp', W, x)
+        pred = torch.einsum("ntp,ktn->kp", W, x)
         pred += self.bs[idx]
         return pred
         
