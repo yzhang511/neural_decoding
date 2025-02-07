@@ -8,6 +8,7 @@ from pathlib import Path
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import Ridge, LogisticRegression
 import torch
+from torch.utils.data import DataLoader
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch import Trainer
 from ray import tune
@@ -24,6 +25,7 @@ from utils.sweep import tune_decoder
 from utils.utils import set_seed
 from utils.config import config_from_kwargs, update_config
 
+BINSIZE = 0.01
 REGRESSION = ["running_speed", "gaze", "pupil"]
 CLASSIFICATION = ["gabors", "static_gratings", "drifting_gratings"]
 LENGTH_LOOKUP = {
@@ -35,10 +37,10 @@ LENGTH_LOOKUP = {
     "pupil": 1.
 }
 OUTPUT_SIZE_LOOKUP = {
-    "gabors": 2, 
+    "gabors": 3, 
     "static_gratings": 6, 
     "drifting_gratings": 8, 
-    "running_speed": 1, 
+    "running_speed": int(1/BINSIZE), 
     "gaze": 1, 
     "pupil": 1
 }
@@ -53,6 +55,7 @@ ap.add_argument("--base_path", type=str, default="./")
 ap.add_argument("--session_id", type=str)
 ap.add_argument("--target", type=str, default="gabors", choices=REGRESSION+CLASSIFICATION)
 ap.add_argument("--region", type=str, default="all")
+ap.add_argument("--search", action="store_true")
 ap.add_argument("--method", type=str, default="linear", choices=["linear", "reduced_rank", "mlp", "lstm"])
 ap.add_argument("--n_workers", type=int, default=1)
 args = ap.parse_args()
@@ -99,41 +102,31 @@ search_space = config.copy()
 search_space["session_id"] = args.session_id
 search_space["target"] = args.target
 search_space["length"] = LENGTH_LOOKUP[args.target]
-search_space["output_size"] = OUTPUT_SIZE_LOOKUP[args.target]
-search_space["region"] = args.region if args.region != "all" else None
+search_space["model"]["output_size"] = OUTPUT_SIZE_LOOKUP[args.target]
+search_space["region"] = args.region if args.region != "all" else "all"
 search_space["training"]["device"] = torch.device(
     "cuda" if np.logical_and(torch.cuda.is_available(), config.training.device == "gpu") else "cpu"
 )
-
+    
 # set up for hyperparameter sweep
-if model_class == "linear":
-    dm = SingleSessionDataModule(search_space)
-    dm.setup()
-    if args.target in REGRESSION:
-        model = GridSearchCV(Ridge(), {"alpha": [1e-4, 1e-3, 1e-2, 1e-1, 1, 1e1]})
-    elif args.target in CLASSIFICATION:
-        model = GridSearchCV(LogisticRegression(), {"C": [1, 1e1, 1e2, 1e3, 1e4]})
-    else:
-        raise NotImplementedError
-else:
-    # search_space["optimizer"]["lr"] = tune.grid_search([1e-2, 1e-3])
-    # search_space["optimizer"]["weight_decay"] = tune.grid_search([1, 1e-1, 1e-2, 1e-3])
-    search_space["optimizer"]["lr"] = tune.grid_search([1e-3])
-    search_space["optimizer"]["weight_decay"] = tune.grid_search([1e-2])
+if args.search:
+
+    search_space["optimizer"]["lr"] = tune.loguniform(1e-4, 1e-2),
+    search_space["optimizer"]["weight_decay"] = tune.loguniform(0.001, 1.),
     
     if model_class == "reduced_rank":
-        # search_space["reduced_rank"]["temporal_rank"] = tune.grid_search([2, 5, 10, 15])
-        search_space["reduced_rank"]["temporal_rank"] = tune.grid_search([2])
-        search_space["tuner"]["num_epochs"] = 10 # 500
-        search_space["training"]["num_epochs"] = 10 # 800
+        num_timesteps = int(search_space["length"]/BINSIZE)
+        search_space["reduced_rank"]["temporal_rank"] = tune.randint(2, num_timesteps)
+        search_space["tuner"]["num_epochs"] = 10
+        search_space["training"]["num_epochs"] = 10
     elif model_class == "lstm":
-        search_space["lstm"]["lstm_hidden_size"] = tune.grid_search([128, 64])
-        search_space["lstm"]["lstm_n_layers"] = tune.grid_search([1, 3, 5])
-        search_space["lstm"]["drop_out"] = tune.grid_search([0., 0.2, 0.4, 0.6])
+        search_space["lstm"]["lstm_hidden_size"] = tune.choice([64, 128, 256])
+        search_space["lstm"]["lstm_n_layers"] = tune.randint([1, 10])
+        search_space["lstm"]["drop_out"] = tune.uniform(0.1, 0.4)
         search_space["tuner"]["num_epochs"] = 250
         search_space["training"]["num_epochs"] = 250
     elif model_class == "mlp":
-        search_space["mlp"]["drop_out"] = tune.grid_search([0., 0.2, 0.4, 0.6])
+        search_space["mlp"]["drop_out"] = tune.uniform(0.1, 0.4)
         search_space["tuner"]["num_epochs"] = 250
         search_space["training"]["num_epochs"] = 250
     else:
@@ -178,7 +171,35 @@ else:
 
     print("Best model config:")
     print(best_config)
-    
+
+
+if not args.search:
+    best_config = search_space
+
+# set up data loader
+dm = SingleSessionDataModule(best_config)
+dm.update_config()
+
+# init and train model
+if model_class == "reduced_rank":
+    model = ReducedRankDecoder(best_config)
+elif model_class == "lstm":
+    model = LSTMDecoder(best_config)
+elif model_class == "mlp":
+    model = MLPDecoder(best_config)
+elif model_class == "linear":
+    if args.target in REGRESSION:
+        model = GridSearchCV(Ridge(), {"alpha": [1e-4, 1e-3, 1e-2, 1e-1, 1, 1e1]})
+    elif args.target in CLASSIFICATION:
+        model = GridSearchCV(LogisticRegression(), {"C": [1, 1e1, 1e2, 1e3, 1e4]})
+    else:
+        raise NotImplementedError
+else:
+    raise NotImplementedError
+
+if model_class != "linear":
+    model.to(best_config["training"]["device"])
+
     # set up trainer
     checkpoint_callback = ModelCheckpoint(
         monitor=config.training.metric, 
@@ -191,38 +212,38 @@ else:
         enable_progress_bar=config.training.enable_progress_bar
     )
 
-    # set up data loader
-    dm = SingleSessionDataModule(best_config)
-    dm.setup()
-
-    # init and train model
-    if model_class == "reduced_rank":
-        model = ReducedRankDecoder(best_config)
-    elif model_class == "lstm":
-        model = LSTMDecoder(best_config)
-    elif model_class == "mlp":
-        model = MLPDecoder(best_config)
-    else:
-        raise NotImplementedError
-    
     trainer.fit(model, datamodule=dm)
-    trainer.test(datamodule=dm, ckpt_path="best")
-    metrics = trainer.test(datamodule=dm, ckpt_path="best")[0]
-    metric = metrics["test_metric"]
+    train_dataset, test_dataset = dm.train, dm.test
 
+# get test results
+# test_results = trainer.test(datamodule=dm, ckpt_path="best")[0]
+# metric = test_results["test_metric"]
 
 """
 ----------
 EVALUATION
 ----------
 """
-metric, test_pred, test_y = eval_model(
-    dm.train, 
-    dm.test, 
-    model, 
-    target=config["model"]["target"], 
-    model_class=model_class
-)
+if model_class != "linear":
+    model.eval()
+    with torch.no_grad():
+        metric, test_pred, test_y = eval_model(
+            train_dataset, 
+            test_dataset, 
+            model, 
+            target=config["model"]["target"], 
+            model_class=model_class
+        )
+else:
+    dm.setup()
+    train_dataset, test_dataset = dm.train, dm.test
+    metric, test_pred, test_y = eval_model(
+        train_dataset, 
+        test_dataset, 
+        model, 
+        target=config["model"]["target"], 
+        model_class=model_class
+    )
 
 print(f"Decoding results for {args.session_id}: ", metric)
 res_dict = {
@@ -231,4 +252,4 @@ res_dict = {
     "test_y": test_y,
 }
 np.save(save_path/f"{args.session_id}.npy", res_dict)
-        
+    

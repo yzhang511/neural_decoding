@@ -224,8 +224,8 @@ class BaseDataset(Dataset):
             mask = np.any((timestamps[:, None] >= start) & (timestamps[:, None] < end), axis=1)
             behavior = behavior[mask]
             valid_mask = ~np.isnan(behavior)
-            one_hot_encoder = preprocessing.OneHotEncoder(handle_unknown="ignore")
-            behavior = one_hot_encoder.fit_transform(behavior.reshape(-1, 1)).toarray()
+            # one_hot_encoder = preprocessing.OneHotEncoder(handle_unknown="ignore")
+            # behavior = one_hot_encoder.fit_transform(behavior.reshape(-1, 1)).toarray()
         else:
             raise ValueError(f"Target {target} not supported.")
 
@@ -249,8 +249,12 @@ class BaseDataset(Dataset):
         self.regions = np.array([region] * self.num_trials)
 
         self.spike_count = to_tensor(spike_count, device).double()
-        self.behavior = to_tensor(behavior, device).double()
-  
+        self.behavior = to_tensor(behavior, device)
+        self.behavior = self.behavior.double() if target in REGRESSION else self.behavior.long()
+
+        if len(self.spike_count) == 0 or len(self.behavior) == 0:
+            raise ValueError(f"No valid trials found for {session_id} {target} {split} set.")
+        
     def __len__(self):
         return self.num_trials
 
@@ -275,6 +279,18 @@ class SingleSessionDataModule(LightningDataModule):
         self.batch_size = config.get("training", {}).get("batch_size", 16)
         self.n_workers = config.get("data", {}).get("num_workers", 1)
 
+    def update_config(self):
+        self.val = BaseDataset(
+            self.session_id, self.target, self.data_dir, "val", 
+            self.device, self.binsize, self.length, self.region, self.n_workers
+        )
+        self.config.update({
+            "num_units": self.val.num_units, 
+            "num_timesteps": self.val.num_timesteps,
+            "session_id": self.session_id, 
+            "region": self.region
+        })
+
     def setup(self, stage=None):
         """Call this function to load and preprocess data."""
         self.train = BaseDataset(
@@ -289,12 +305,6 @@ class SingleSessionDataModule(LightningDataModule):
             self.session_id, self.target, self.data_dir, "test", 
             self.device, self.binsize, self.length, self.region, self.n_workers
         )
-        self.config.update({
-            "num_units": self.train.num_units, 
-            "num_timesteps": self.train.num_timesteps,
-            "session_id": self.session_id, 
-            "region": self.region
-        })
 
     def train_dataloader(self):
         data_loader = DataLoader(self.train, batch_size=self.batch_size, shuffle=True)

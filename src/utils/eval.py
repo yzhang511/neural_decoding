@@ -61,7 +61,7 @@ def eval_model(
     elif model_class == 'linear':
         train_x, test_x = train_x.numpy(), test_x.numpy()
         if target == 'clf':
-            model.fit(train_x.reshape((train_x.shape[0], -1)), train_y.argmax(1))
+            model.fit(train_x.reshape((train_x.shape[0], -1)), train_y)
         elif target == 'reg':
             model.fit(train_x.reshape((train_x.shape[0], -1)), train_y)
         test_pred = model.predict(test_x.reshape((test_x.shape[0], -1)))
@@ -78,7 +78,7 @@ def eval_model(
     if target == 'reg':
         metric = r2_score(test_y.flatten(), test_pred.flatten())
     elif target == 'clf':
-        metric = accuracy_score(test_y.argmax(1), test_pred)
+        metric = accuracy_score(test_y, test_pred)
     else:
         raise NotImplementedError
         

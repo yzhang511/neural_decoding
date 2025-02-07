@@ -35,8 +35,12 @@ class BaselineDecoder(LightningModule):
         self.target = config["model"]["target"]
         self.output_size = config["model"]["output_size"]
 
-        self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput="uniform_average")
-        self.accuracy = Accuracy(task="multiclass", num_classes=self.output_size)
+        if self.target == "reg":
+            self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput="uniform_average")
+        elif self.target == "clf":
+            self.accuracy = Accuracy(task="multiclass", num_classes=self.output_size)
+        else:
+            raise NotImplementedError
 
     def forward(self, x):
         pass
@@ -62,7 +66,7 @@ class BaselineDecoder(LightningModule):
             self.log(f"{print_str}_metric", self.r2_score, prog_bar=True, logger=True, sync_dist=True)
         elif self.target == "clf":
             loss = torch.nn.CrossEntropyLoss()(pred, y)
-            self.accuracy(F.softmax(pred, dim=1).argmax(1), y.argmax(1))
+            self.accuracy(F.softmax(pred, dim=1).argmax(1), y)
             self.log(f"{print_str}_metric", self.accuracy, prog_bar=True, logger=True, sync_dist=True)
         else:
             raise NotImplementedError
@@ -217,8 +221,12 @@ class BaselineMultiSessionDecoder(LightningModule):
         self.learning_rate = config["optimizer"]["lr"]
         self.weight_decay = config["optimizer"]["weight_decay"]
 
-        self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput="uniform_average")
-        self.accuracy = Accuracy(task="multiclass", num_classes=self.output_size)
+        if self.target == "reg":
+            self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput="uniform_average")
+        elif self.target == "clf":
+            self.accuracy = Accuracy(task="multiclass", num_classes=self.output_size)
+        else:
+            raise NotImplementedError
 
     def forward(self, x):
         pass
@@ -255,7 +263,7 @@ class BaselineMultiSessionDecoder(LightningModule):
                 metric[idx] = self.r2_score(pred.flatten(), y.flatten())
             elif self.target == "clf":
                 loss = torch.nn.CrossEntropyLoss()(pred, y)
-                metric[idx] = self.accuracy(F.softmax(pred, dim=1).argmax(1), y.argmax(1))
+                metric[idx] = self.accuracy(F.softmax(pred, dim=1).argmax(1), y)
             else:
                 raise NotImplementedError
         loss, metric = torch.mean(loss), torch.mean(metric)
