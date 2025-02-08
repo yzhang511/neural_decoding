@@ -311,10 +311,10 @@ class SingleSessionDataModule(LightningDataModule):
         return data_loader
 
     def val_dataloader(self):
-        return DataLoader(self.val, batch_size=self.batch_size, shuffle=False, drop_last=True)
+        return DataLoader(self.val, batch_size=self.batch_size, shuffle=False, drop_last=False)
 
     def test_dataloader(self):
-        return DataLoader(self.test, batch_size=self.batch_size, shuffle=False, drop_last=True)
+        return DataLoader(self.test, batch_size=self.batch_size, shuffle=False, drop_last=False)
 
 
 class MultiSessionDataModule(LightningDataModule):

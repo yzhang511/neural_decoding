@@ -7,10 +7,10 @@ dirs:
   output_dir: results
 
 training:
-  num_epochs: 1000
-  batch_size: 64
+  num_epochs: 2000
+  batch_size: 32
 
-  device: cpu
+  device: gpu
   metric: val_loss
   mode: min
   enable_progress_bar: true
@@ -18,7 +18,7 @@ training:
 
 model: 
   model_class: DECODER   
-  target: reg            
+  target: reg           
   output_size: 100       
 
 data:
@@ -32,9 +32,9 @@ data:
   num_workers: 1
 
 optimizer:
-  lr: 0.01
+  lr: 0.001
   scheduler: cosine  # step/cosine/linear
-  weight_decay: 1
+  weight_decay: 1.
 
 tuner:
   num_epochs: 10     # increase if running on hpc

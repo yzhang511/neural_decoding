@@ -197,6 +197,7 @@ elif model_class == "linear":
 else:
     raise NotImplementedError
 
+
 if model_class != "linear":
     model.to(best_config["training"]["device"])
 
@@ -209,15 +210,12 @@ if model_class != "linear":
     trainer = Trainer(
         max_epochs=config.training.num_epochs, 
         callbacks=[checkpoint_callback], 
-        enable_progress_bar=config.training.enable_progress_bar
+        enable_progress_bar=config.training.enable_progress_bar,
+        check_val_every_n_epoch=1,
     )
 
     trainer.fit(model, datamodule=dm)
     train_dataset, test_dataset = dm.train, dm.test
-
-# get test results
-# test_results = trainer.test(datamodule=dm, ckpt_path="best")[0]
-# metric = test_results["test_metric"]
 
 """
 ----------

@@ -36,7 +36,7 @@ class BaselineDecoder(LightningModule):
         self.output_size = config["model"]["output_size"]
 
         if self.target == "reg":
-            self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput="uniform_average")
+            self.r2_score = R2Score(num_outputs=self.output_size, multioutput="uniform_average")
         elif self.target == "clf":
             self.accuracy = Accuracy(task="multiclass", num_classes=self.output_size)
         else:
@@ -49,28 +49,39 @@ class BaselineDecoder(LightningModule):
         x, y, _, _ = batch
         pred = self(x)
         if self.target == "reg":
-            loss = F.mse_loss(pred, y)
+            loss = torch.nn.MSELoss()(pred, y)
         elif self.target == "clf":
             loss = torch.nn.CrossEntropyLoss()(pred, y)
         else:
             raise NotImplementedError
-        self.log("loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return loss
+    
+    def on_validation_epoch_end(self):
+        if self.target == "reg":
+            r2_value = self.r2_score.compute() 
+            self.log("val_metric", r2_value, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+            self.r2_score.reset()
+        elif self.target == "clf":
+            acc_value = self.accuracy.compute()
+            self.log("val_metric", acc_value, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+            self.accuracy.reset()
 
     def validation_step(self, batch, batch_idx, print_str="val"):
         x, y, _, _ = batch
         pred = self(x)
+
         if self.target == "reg":
-            loss = F.mse_loss(pred, y)
-            self.r2_score(pred.flatten(), y.flatten())
-            self.log(f"{print_str}_metric", self.r2_score, prog_bar=True, logger=True, sync_dist=True)
+            loss = torch.nn.MSELoss()(pred, y)            
+            self.r2_score.update(pred, y) 
         elif self.target == "clf":
             loss = torch.nn.CrossEntropyLoss()(pred, y)
-            self.accuracy(F.softmax(pred, dim=1).argmax(1), y)
-            self.log(f"{print_str}_metric", self.accuracy, prog_bar=True, logger=True, sync_dist=True)
+            self.accuracy.update(F.softmax(pred, dim=1).argmax(1), y)
         else:
             raise NotImplementedError
-        self.log(f"{print_str}_loss", loss, prog_bar=True)
+
+        self.log(f"{print_str}_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
         return loss
 
     def test_step(self, batch, batch_idx):
@@ -108,6 +119,7 @@ class ReducedRankDecoder(BaselineDecoder):
         self.B = torch.einsum("nr,rtd->ntd", self.U, self.V)
         pred = torch.einsum("ntd,ktn->kd", self.B, x)
         pred += self.b
+
         return pred
 
 
@@ -222,7 +234,7 @@ class BaselineMultiSessionDecoder(LightningModule):
         self.weight_decay = config["optimizer"]["weight_decay"]
 
         if self.target == "reg":
-            self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput="uniform_average")
+            self.r2_score = R2Score(num_outputs=self.output_size)
         elif self.target == "clf":
             self.accuracy = Accuracy(task="multiclass", num_classes=self.output_size)
         else:

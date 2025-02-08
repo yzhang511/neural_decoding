@@ -330,7 +330,7 @@ def get_behavior_region(running_speed_dict, pupil_dict=None, gaze_dict=None):
     )
     assert (
         session_start < session_end
-    ), "Atleast one of running_speed, pupil or gaze data must be present."
+    ), "At least one of running_speed, pupil or gaze data must be present."
     return session_start, session_end
 
 def sample_free_behavior_splits(
