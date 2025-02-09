@@ -136,30 +136,27 @@ class MLPDecoder(BaselineDecoder):
         self.hidden_size = tuple_type(config["mlp"]["mlp_hidden_size"])
         self.drop_out = config["mlp"]["drop_out"]
         
-        self.input_layer = torch.nn.Linear(self.n_units, self.hidden_size[0])
-        self.hidden_lower = torch.nn.ModuleList()
+        # Input processing (shared across time steps)
+        self.input_layer = torch.nn.Linear(self.n_units*self.n_t_steps, self.hidden_size[0])
+        
+        # Hidden layers with ReLU and Dropout
+        self.hidden = torch.nn.ModuleList()
         for l in range(len(self.hidden_size)-1):
-            self.hidden_lower.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
-            self.hidden_lower.append(torch.nn.ReLU())
-            self.hidden_lower.append(torch.nn.Dropout(self.drop_out))
-        self.flat_layer = torch.nn.Linear(self.hidden_size[-1]*self.n_t_steps, self.hidden_size[0])
-
-        self.hidden_upper = torch.nn.ModuleList()
-        for l in range(len(self.hidden_size)-1):
-            self.hidden_upper.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
-            self.hidden_upper.append(torch.nn.ReLU())
-            self.hidden_upper.append(torch.nn.Dropout(self.drop_out))
+            self.hidden.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
+            self.hidden.append(torch.nn.ReLU())
+            self.hidden.append(torch.nn.Dropout(self.drop_out))
+        
+        # Final output layer
         self.output_layer = torch.nn.Linear(self.hidden_size[-1], self.output_size)
         self.double()
 
     def forward(self, x):
-        x = self.input_layer(x)
-        for layer in self.hidden_lower:
-            x = layer(x)
-        x = F.relu(self.flat_layer(x.flatten(start_dim=1)))
+        # Process input through shared time-step layers
+        x = self.input_layer(x.flatten(1))  # (batch, n_t_steps, hidden_size[0])
         
-        for layer in self.hidden_upper:
-            x = layer(x)
+        for layer in self.hidden:
+            x = layer(x)  # (batch, n_t_steps, hidden_size[-2])
+        
         pred = self.output_layer(x)
         return pred
     
@@ -181,29 +178,39 @@ class LSTMDecoder(BaselineDecoder):
         self.hidden_size = tuple_type(config["lstm"]["mlp_hidden_size"])
         self.drop_out = config["lstm"]["drop_out"]
 
+        # Core LSTM module
         self.lstm = torch.nn.LSTM(
             input_size=self.n_units,
             hidden_size=self.lstm_hidden_size,
             num_layers=self.n_layers,
-            dropout=self.drop_out,
+            dropout=self.drop_out if self.n_layers > 1 else 0,
             batch_first=True,
+            bidirectional=False  # Maintain parameter efficiency
         )
 
-        self.input_layer = torch.nn.Linear(self.lstm_hidden_size, self.hidden_size[0])
+        self.input_layer = torch.nn.Linear(self.lstm_hidden_size*self.n_t_steps, self.hidden_size[0])
+        
+        # Hidden layers with ReLU and Dropout
         self.hidden = torch.nn.ModuleList()
         for l in range(len(self.hidden_size)-1):
             self.hidden.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
             self.hidden.append(torch.nn.ReLU())
             self.hidden.append(torch.nn.Dropout(self.drop_out))
-        self.output_layer = torch.nn.Linear(self.hidden_size[-1], self.output_size) 
+        
+        # Final output layer
+        self.output_layer = torch.nn.Linear(self.hidden_size[-1], self.output_size)
+        
         self.double()
 
     def forward(self, x):
-        # lstm_out: (batch_size, seq_len, hidden_size)
-        lstm_out, _ = self.lstm(x)
-        x = F.relu(self.input_layer(lstm_out[:,-1]))
+        # LSTM processing
+        lstm_out, _ = self.lstm(x)  # (batch, seq_len, hidden_size)
+        
+        x = self.input_layer(lstm_out.flatten(1))  # (batch, n_t_steps, hidden_size[0])
+        
         for layer in self.hidden:
-            x = layer(x)
+            x = layer(x)  # (batch, n_t_steps, hidden_size[-2])
+        
         pred = self.output_layer(x)
         return pred
 

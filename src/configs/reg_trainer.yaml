@@ -43,5 +43,5 @@ tuner:
   num_workers: 1
   metric: val_loss
   mode: min
-  enable_progress_bar: false
+  enable_progress_bar: true
 

@@ -9,7 +9,7 @@ mlp:
   drop_out: 0.1
 
 lstm:
-  lstm_n_layers: 1
-  lstm_hidden_size: 32
-  mlp_hidden_size: (32)
+  lstm_n_layers: 3
+  lstm_hidden_size: 128
+  mlp_hidden_size: (64)
   drop_out: 0.1

@@ -199,50 +199,64 @@ class BaseDataset(Dataset):
         TO DO: Filter by brain region.
         """
 
-        with open(f"{data_dir}/{session_id}.pkl", "rb") as f:
-            session_dict = pickle.load(f)
+        cached_dir = str(data_dir).replace("processed", "cached")
+        cached_dir = f"{cached_dir}/{session_id}/{target}/{region}/{split}"
+        if os.path.exists(cached_dir):
+            print(f"Loading cached data from {cached_dir}")
+            spike_count = np.load(f"{cached_dir}/spike_count.npy", allow_pickle=True)
+            behavior = np.load(f"{cached_dir}/behavior.npy", allow_pickle=True)
+            self.start = np.load(f"{cached_dir}/start.npy", allow_pickle=True)
+            self.end = np.load(f"{cached_dir}/end.npy", allow_pickle=True)
+        else:
+            os.makedirs(cached_dir, exist_ok=True)
 
-        # Load behavior first because we need to filter out invalid trials
-        if target in REGRESSION:
-            start, end = session_dict["splits"]["free_behavior_splits"][split].T
-            _, behavior, valid_mask, _ = bin_target(
-                session_dict["data"][target]["timestamps"], 
-                session_dict["data"][target][target], 
+            with open(f"{data_dir}/{session_id}.pkl", "rb") as f:
+                session_dict = pickle.load(f)
+
+            # Load behavior first because we need to filter out invalid trials
+            if target in REGRESSION:
+                start, end = session_dict["splits"]["free_behavior_splits"][split].T
+                _, behavior, valid_mask, _ = bin_target(
+                    session_dict["data"][target]["timestamps"], 
+                    session_dict["data"][target][target], 
+                    start=start,
+                    end=end,
+                    binsize=binsize,
+                    length=length,
+                    n_workers=n_workers
+                )
+                scaler = preprocessing.MinMaxScaler().fit(behavior)
+                behavior = scaler.transform(behavior) 
+            elif target in CLASSIFICATION:
+                start, end = session_dict["splits"][target][split].T
+                target_name = "gabors_orientation" if target == "gabors" else "orientation"
+                timestamps = session_dict["data"][target]["timestamps"]
+                behavior = session_dict["data"][target][target_name]
+                mask = np.any((timestamps[:, None] >= start) & (timestamps[:, None] < end), axis=1)
+                behavior = behavior[mask]
+                valid_mask = ~np.isnan(behavior)
+            else:
+                raise ValueError(f"Target {target} not supported.")
+
+            spike_count = bin_spike_count(
+                session_dict["data"]["spikes"], 
+                session_dict["data"]["units"]["unit_index"], 
                 start=start,
                 end=end,
                 binsize=binsize,
                 length=length,
                 n_workers=n_workers
             )
-            scaler = preprocessing.MinMaxScaler().fit(behavior)
-            behavior = scaler.transform(behavior) 
-        elif target in CLASSIFICATION:
-            start, end = session_dict["splits"][target][split].T
-            target_name = "gabors_orientation" if target == "gabors" else "orientation"
-            timestamps = session_dict["data"][target]["timestamps"]
-            behavior = session_dict["data"][target][target_name]
-            mask = np.any((timestamps[:, None] >= start) & (timestamps[:, None] < end), axis=1)
-            behavior = behavior[mask]
-            valid_mask = ~np.isnan(behavior)
-            # one_hot_encoder = preprocessing.OneHotEncoder(handle_unknown="ignore")
-            # behavior = one_hot_encoder.fit_transform(behavior.reshape(-1, 1)).toarray()
-        else:
-            raise ValueError(f"Target {target} not supported.")
 
-        spike_count = bin_spike_count(
-            session_dict["data"]["spikes"], 
-            session_dict["data"]["units"]["unit_index"], 
-            start=start,
-            end=end,
-            binsize=binsize,
-            length=length,
-            n_workers=n_workers
-        )
+            # Filter out invalid trials
+            spike_count = spike_count[valid_mask]
+            self.start = start[valid_mask]
+            self.end = end[valid_mask]
 
-        # Filter out invalid trials
-        spike_count = spike_count[valid_mask]
-        self.start = start[valid_mask]
-        self.end = end[valid_mask]
+            np.save(f"{cached_dir}/spike_count.npy", spike_count)
+            np.save(f"{cached_dir}/behavior.npy", behavior)
+            np.save(f"{cached_dir}/start.npy", start)
+            np.save(f"{cached_dir}/end.npy", end)
         
         self.num_trials, self.num_timesteps, self.num_units = spike_count.shape
         self.sessions = np.array([session_id] * self.num_trials)

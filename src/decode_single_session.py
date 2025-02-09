@@ -111,30 +111,38 @@ search_space["training"]["device"] = torch.device(
 # set up for hyperparameter sweep
 if args.search:
 
-    search_space["optimizer"]["lr"] = tune.loguniform(1e-4, 1e-2),
-    search_space["optimizer"]["weight_decay"] = tune.loguniform(0.001, 1.),
+    search_space["optimizer"]["lr"] = tune.loguniform(1e-4, 1e-2)
+    search_space["optimizer"]["weight_decay"] = tune.loguniform(0.001, 1.)
     
     if model_class == "reduced_rank":
         num_timesteps = int(search_space["length"]/BINSIZE)
         search_space["reduced_rank"]["temporal_rank"] = tune.randint(2, num_timesteps)
-        search_space["tuner"]["num_epochs"] = 10
-        search_space["training"]["num_epochs"] = 10
+        search_space["tuner"]["num_epochs"] = config.training.num_epochs // 2
+        search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "lstm":
-        search_space["lstm"]["lstm_hidden_size"] = tune.choice([64, 128, 256])
-        search_space["lstm"]["lstm_n_layers"] = tune.randint([1, 10])
+        search_space["lstm"]["lstm_n_layers"] = tune.randint(1, 6)
+        search_space["lstm"]["lstm_hidden_size"] = tune.choice([32, 64, 128, 256])
+        search_space["lstm"]["mlp_hidden_size"] = tune.choice(["(32)", "(64)", "(128)"])
         search_space["lstm"]["drop_out"] = tune.uniform(0.1, 0.4)
-        search_space["tuner"]["num_epochs"] = 250
-        search_space["training"]["num_epochs"] = 250
+        search_space["tuner"]["num_epochs"] = config.training.num_epochs // 4
+        search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "mlp":
+        mlp_configs = [
+            "(512, 256, 128, 64, 32)", "(512, 256, 128)", "(512, 128, 64)", "(512, 256)", 
+            "(256, 128, 64, 32)", "(256, 128, 64)", "(256, 128, 32)", 
+            "(128, 64, 32)", "(128, 64)", "(128, 32)", "(64, 32)",
+        ]
+        search_space["mlp"]["mlp_hidden_size"] = tune.choice(mlp_configs)
         search_space["mlp"]["drop_out"] = tune.uniform(0.1, 0.4)
-        search_space["tuner"]["num_epochs"] = 250
-        search_space["training"]["num_epochs"] = 250
+        search_space["tuner"]["num_epochs"] = config.training.num_epochs // 4
+        search_space["training"]["num_epochs"] = config.training.num_epochs
     else:
         raise NotImplementedError
 
     def train_func(config):
         dm = SingleSessionDataModule(config)
-        dm.setup()
+        dm.update_config()
+
         if model_class == "reduced_rank":
             model = ReducedRankDecoder(dm.config)
         elif model_class == "lstm":
@@ -152,6 +160,7 @@ if args.search:
             callbacks=[RayTrainReportCallback()],
             plugins=[RayLightningEnvironment()],
             enable_progress_bar=config["tuner"]["enable_progress_bar"],
+            check_val_every_n_epoch=1,
         )
         trainer = prepare_trainer(trainer)
         trainer.fit(model, datamodule=dm)
@@ -211,7 +220,9 @@ if model_class != "linear":
         max_epochs=config.training.num_epochs, 
         callbacks=[checkpoint_callback], 
         enable_progress_bar=config.training.enable_progress_bar,
-        check_val_every_n_epoch=1,
+        check_val_every_n_epoch=1 if model_class == "reduced_rank" else 10, # Otherwise too slow
+        devices=1, # Use only one GPU
+        strategy="auto",  
     )
 
     trainer.fit(model, datamodule=dm)

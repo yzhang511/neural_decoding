@@ -2,8 +2,9 @@
 import os
 import ray
 from ray import tune
+from ray.tune import CLIReporter
 from ray.tune.schedulers import ASHAScheduler
-from ray.train import RunConfig, ScalingConfig, CheckpointConfig
+from ray.train import RunConfig, ScalingConfig, CheckpointConfig, FailureConfig
 from ray.train.torch import TorchTrainer
 
 def tune_decoder(
@@ -20,15 +21,24 @@ def tune_decoder(
     scaling_config = ScalingConfig(
         num_workers=num_workers, use_gpu=use_gpu, resources_per_worker=resources_per_worker
     )
+
+    # Add a progress reporter
+    progress_reporter = CLIReporter(
+        metric_columns=[metric, "training_iteration"],  # Metrics to display
+        max_progress_rows=num_samples,  # Show progress for all samples
+        max_report_frequency=30,  # Update progress every 30 seconds
+    )
     
     run_config = RunConfig(
         storage_path=save_dir,
         checkpoint_config=CheckpointConfig(
-            num_to_keep=2,
+            num_to_keep=1,
             checkpoint_score_attribute=metric,
             checkpoint_score_order=mode,
         ),
-        stop={"time_total_s": 5400},  # seconds
+        # stop={"training_iteration": max_epochs},  # seconds
+        progress_reporter=progress_reporter,
+        failure_config=FailureConfig(max_failures=2), 
     )
     
     ray_trainer = TorchTrainer(
