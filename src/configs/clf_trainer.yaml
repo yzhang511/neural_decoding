@@ -11,8 +11,8 @@ training:
   batch_size: 128
 
   device: gpu
-  metric: val_metric
-  mode: max
+  metric: val_loss
+  mode: min
   enable_progress_bar: true
   load_local: true
 
@@ -38,10 +38,10 @@ optimizer:
 
 tuner:
   num_epochs: 1000
-  num_samples: 30
+  num_samples: 50
   use_gpu: true
   num_workers: 1
-  metric: val_metric
-  mode: max
+  metric: val_loss
+  mode: min
   enable_progress_bar: true
 

@@ -16,7 +16,9 @@ module load anaconda
 python --version
 
 session_id=${1}
-search=${2}
+target=${2}
+method=${3}
+search=${4}
 
 if [ "$search" = "True" ]; then
     echo "Doing hyperparameter search"
@@ -80,8 +82,8 @@ cd ..
 
 python src/decode_single_session.py \
     --session_id $session_id \
-    --target running_speed \
-    --method linear \
+    --target $target \
+    --method $method \
     --base_path /burg/stats/users/yz4123/allen/ \
     --n_workers "$SLURM_CPUS_PER_TASK" \
     $search

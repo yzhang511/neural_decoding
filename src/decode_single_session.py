@@ -111,30 +111,30 @@ search_space["training"]["device"] = torch.device(
 # set up for hyperparameter sweep
 if args.search:
 
-    search_space["optimizer"]["lr"] = tune.loguniform(1e-4, 1e-2)
-    search_space["optimizer"]["weight_decay"] = tune.loguniform(0.001, 1.)
+    search_space["optimizer"]["lr"] = tune.loguniform(1e-3, 1e-2)
+    search_space["optimizer"]["weight_decay"] = tune.loguniform(0.01, 1.)
     
     if model_class == "reduced_rank":
         num_timesteps = int(search_space["length"]/BINSIZE)
-        search_space["reduced_rank"]["temporal_rank"] = tune.randint(2, num_timesteps)
-        search_space["tuner"]["num_epochs"] = config.training.num_epochs // 2
+        search_space["optimizer"]["weight_decay"] = 1.
+        search_space["reduced_rank"]["temporal_rank"] = tune.randint(2, 10)
+        search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "lstm":
-        search_space["lstm"]["lstm_n_layers"] = tune.randint(1, 6)
+        search_space["lstm"]["lstm_n_layers"] = tune.randint(1, 4)
         search_space["lstm"]["lstm_hidden_size"] = tune.choice([32, 64, 128, 256])
         search_space["lstm"]["mlp_hidden_size"] = tune.choice(["(32)", "(64)", "(128)"])
-        search_space["lstm"]["drop_out"] = tune.uniform(0.1, 0.4)
-        search_space["tuner"]["num_epochs"] = config.training.num_epochs // 4
+        search_space["lstm"]["drop_out"] = tune.uniform(0.1, 0.3)
+        search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "mlp":
-        mlp_configs = [
-            "(512, 256, 128, 64, 32)", "(512, 256, 128)", "(512, 128, 64)", "(512, 256)", 
-            "(256, 128, 64, 32)", "(256, 128, 64)", "(256, 128, 32)", 
-            "(128, 64, 32)", "(128, 64)", "(128, 32)", "(64, 32)",
+        mlp_hyperparams = [
+            "(512, 256, 128, 64, 32)", "(256, 128, 64, 32)", 
+            "(128, 64, 32)", "(64, 32)",
         ]
-        search_space["mlp"]["mlp_hidden_size"] = tune.choice(mlp_configs)
-        search_space["mlp"]["drop_out"] = tune.uniform(0.1, 0.4)
-        search_space["tuner"]["num_epochs"] = config.training.num_epochs // 4
+        search_space["mlp"]["mlp_hidden_size"] = tune.choice(mlp_hyperparams)
+        search_space["mlp"]["drop_out"] = tune.uniform(0.1, 0.3)
+        search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     else:
         raise NotImplementedError
@@ -173,7 +173,9 @@ if args.search:
         use_gpu=config.tuner.use_gpu, 
         max_epochs=config.tuner.num_epochs, 
         num_samples=config.tuner.num_samples, 
-        num_workers=args.n_workers
+        num_workers=args.n_workers,
+        metric=config.tuner.metric,
+        mode=config.tuner.mode,
     )
     best_result = results.get_best_result(metric=config.tuner.metric, mode=config.tuner.mode)
     best_config = best_result.config["train_loop_config"]
