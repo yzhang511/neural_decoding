@@ -8,11 +8,11 @@ dirs:
 
 training:
   num_epochs: 2000
-  batch_size: 32
+  batch_size: 128
 
   device: gpu
-  metric: val_loss
-  mode: min
+  metric: val_metric
+  mode: max
   enable_progress_bar: true
   load_local: true
 
@@ -37,11 +37,11 @@ optimizer:
   weight_decay: 1.
 
 tuner:
-  num_epochs: 10     # increase if running on hpc
-  num_samples: 1
+  num_epochs: 2000     # increase if running on hpc
+  num_samples: 30
   use_gpu: false
   num_workers: 1
-  metric: val_loss
-  mode: min
+  metric: val_metric
+  mode: max
   enable_progress_bar: true
 

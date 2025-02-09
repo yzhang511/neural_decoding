@@ -8,11 +8,11 @@ dirs:
 
 training:
   num_epochs: 1000
-  batch_size: 32
+  batch_size: 128
 
   device: gpu
-  metric: val_loss
-  mode: min
+  metric: val_metric
+  mode: max
   enable_progress_bar: true
   load_local: true
 
@@ -40,8 +40,8 @@ tuner:
   num_epochs: 1000
   num_samples: 30
   use_gpu: true
-  num_workers: 2
-  metric: val_loss
-  mode: min
+  num_workers: 1
+  metric: val_metric
+  mode: max
   enable_progress_bar: true
 
