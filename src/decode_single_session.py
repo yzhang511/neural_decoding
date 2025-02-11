@@ -80,8 +80,8 @@ else:
 set_seed(config.seed)
 
 config["dirs"]["data_dir"] = Path(args.base_path)/config.dirs.data_dir
-save_path = Path(args.base_path)/config.dirs.output_dir/args.target/args.method/args.region
-ckpt_path = Path(args.base_path)/config.dirs.checkpoint_dir/args.target/args.method/args.region 
+save_path = Path(args.base_path)/config.dirs.output_dir/args.session_id/args.target/args.method/args.region
+ckpt_path = Path(args.base_path)/config.dirs.checkpoint_dir/args.session_id/args.target/args.method/args.region 
 os.makedirs(save_path, exist_ok=True)
 os.makedirs(ckpt_path, exist_ok=True)
 
@@ -111,26 +111,26 @@ search_space["training"]["device"] = torch.device(
 # set up for hyperparameter sweep
 if args.search:
 
-    search_space["optimizer"]["lr"] = tune.loguniform(1e-3, 1e-2)
+    search_space["optimizer"]["lr"] = tune.loguniform(1e-3, 5e-2)
     search_space["optimizer"]["weight_decay"] = tune.loguniform(0.01, 1.)
     
     if model_class == "reduced_rank":
         num_timesteps = int(search_space["length"]/BINSIZE)
-        search_space["optimizer"]["weight_decay"] = 1.
-        search_space["reduced_rank"]["temporal_rank"] = tune.randint(2, 10)
+        search_space["optimizer"]["lr"] = 0.001 if args.target in CLASSIFICATION else 0.01
+        search_space["optimizer"]["weight_decay"] = 1  
+        search_space["reduced_rank"]["temporal_rank"] = tune.randint(1, 15)
         search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "lstm":
-        search_space["lstm"]["lstm_n_layers"] = tune.randint(1, 4)
-        search_space["lstm"]["lstm_hidden_size"] = tune.choice([32, 64, 128, 256])
+        search_space["lstm"]["lstm_n_layers"] = tune.randint(1, 3)
+        search_space["lstm"]["lstm_hidden_size"] = tune.choice([32, 64, 128])
         search_space["lstm"]["mlp_hidden_size"] = tune.choice(["(32)", "(64)", "(128)"])
         search_space["lstm"]["drop_out"] = tune.uniform(0.1, 0.3)
         search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "mlp":
         mlp_hyperparams = [
-            "(512, 256, 128, 64, 32)", "(256, 128, 64, 32)", 
-            "(128, 64, 32)", "(64, 32)",
+            "(256, 128, 64, 32)", "(128, 64, 32)", "(64, 32)",
         ]
         search_space["mlp"]["mlp_hidden_size"] = tune.choice(mlp_hyperparams)
         search_space["mlp"]["drop_out"] = tune.uniform(0.1, 0.3)

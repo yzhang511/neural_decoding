@@ -242,10 +242,12 @@ def extract_pupil(session):
         "eye_width": pupil_df["eye_width"].values.astype(np.float32),
         "eye_phi": pupil_df["eye_phi"].values.astype(np.float32),
     }
-
-    pupil_dict["size_2d"] = np.stack(
-        [pupil_dict.pupil_height, pupil_dict.pupil_width], axis=-1
-    )  # (N, 2)
+    try:
+        pupil_dict["size_2d"] = np.stack(
+            [pupil_dict.pupil_height, pupil_dict.pupil_width], axis=-1
+        )  # (N, 2)
+    except:
+        print("size_2d not found in pupil_dict.")
 
     return pupil_dict
 

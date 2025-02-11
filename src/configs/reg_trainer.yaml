@@ -32,14 +32,14 @@ data:
   num_workers: 1
 
 optimizer:
-  lr: 0.001
+  lr: 0.01
   scheduler: cosine  # step/cosine/linear
   weight_decay: 1.
 
 tuner:
   num_epochs: 2000     # increase if running on hpc
-  num_samples: 50
-  use_gpu: false
+  num_samples: 15
+  use_gpu: true
   num_workers: 1
   metric: val_loss
   mode: min

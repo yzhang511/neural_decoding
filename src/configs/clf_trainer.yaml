@@ -38,7 +38,7 @@ optimizer:
 
 tuner:
   num_epochs: 1000
-  num_samples: 50
+  num_samples: 15
   use_gpu: true
   num_workers: 1
   metric: val_loss
