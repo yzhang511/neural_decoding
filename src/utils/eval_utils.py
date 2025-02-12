@@ -21,7 +21,6 @@ def eval_model(
     target='reg', 
     model_class='reduced_rank', 
     training_type='single-sess', 
-    **kwargs
 ):
     """Model evaluation backbone.
         
@@ -35,21 +34,6 @@ def eval_model(
         model_class: options = ['linear', 'reduced_rank', 'mlp', 'lstm'].
         training_type: options = ['single-sess', 'multi-sess'].
     """
-    # Configure for PSTHs
-    eid = kwargs["eid"]
-    data_dir = kwargs["data_dir"]
-    load_local = kwargs["load_local"]
-    huggingface_org = kwargs["huggingface_org"]
-    if load_local:
-        dataset = datasets.load_from_disk(data_dir/eid)["test"]
-    else:
-        dataset = datasets.load_dataset(
-            f'{huggingface_org}/{eid}_aligned', cache_dir=data_dir
-        )["test"]
-
-    behavior_set, var_name2idx, var_tasklist, var_value2label, var_behlist = \
-        create_behave_list(dataset)
-
     # Load data
     train_x, train_y = [], []
     for (x, y, region, eid) in train:
@@ -83,7 +67,7 @@ def eval_model(
     elif model_class == 'linear':
         train_x, test_x = train_x.numpy(), test_x.numpy()
         if target == 'clf':
-            model.fit(train_x.reshape((train_x.shape[0], -1)), train_y.argmax(1))
+            model.fit(train_x.reshape((train_x.shape[0], -1)), train_y)
         elif target == 'reg':
             model.fit(train_x.reshape((train_x.shape[0], -1)), train_y)
         test_pred = model.predict(test_x.reshape((test_x.shape[0], -1)))
@@ -98,28 +82,13 @@ def eval_model(
 
     # Evaluation
     if target == 'reg':
-        _r2_psth, _r2_trial = viz_single_cell(
-            behavior_set, test_y, test_pred,
-            var_name2idx, var_tasklist, var_value2label, var_behlist,
-            subtract_psth="task",
-            aligned_tbins=[],
-            neuron_idx=kwargs["beh"],
-            neuron_region=kwargs["region"],
-            method=model_class, 
-            save_path=kwargs["save_path"],
-            save_plot=False
-        )
-        metric = _r2_trial
-        chance_metric = _r2_psth
+        metric = r2_score(test_y.flatten(), test_pred.flatten())
     elif target == 'clf':
-        metric = accuracy_score(test_y.argmax(1), test_pred)
-        mode_cls = st.mode(test_y.argmax(1))
-        chance_pred = np.full_like(test_y.argmax(1), mode_cls)
-        chance_metric = accuracy_score(test_y.argmax(1), chance_pred)
+        metric = accuracy_score(test_y, test_pred)
     else:
         raise NotImplementedError
         
-    return metric, chance_metric, test_pred, test_y
+    return metric, test_pred, test_y
 
 
 # --------------------------

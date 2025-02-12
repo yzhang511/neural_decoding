@@ -22,7 +22,7 @@ from fig_PCA.fig_PCA_load_data import load_dataframe
 
 params = {
     "interval_len": 2, 
-    "binsize": 0.05, 
+    "binsize": 0.02, 
     "single_region": False,
     "align_time": "stimOn_times", 
     "time_window": (-.5, 1.5)

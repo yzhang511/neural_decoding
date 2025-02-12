@@ -24,15 +24,17 @@ from utils.sweep_utils import tune_decoder
 from utils.utils import set_seed
 from utils.config_utils import config_from_kwargs, update_config
 
+BINSIZE = 0.02
+LENGTH = 2.
 CLASSIFICATION = ["choice", "block"]
 REGRESSION = ["wheel-speed", "whisker-motion-energy", "pupil-diameter"]
 
 OUTPUT_SIZE_LOOKUP = {
     "choice": 2, 
     "block": 3, 
-    "wheel-speed": 1, 
-    "whisker-motion-energy": 1, 
-    "pupil-diameter": 1, 
+    "wheel-speed": int(LENGTH/BINSIZE), 
+    "whisker-motion-energy": int(LENGTH/BINSIZE),
+    "pupil-diameter": int(LENGTH/BINSIZE),
 }
 
 
@@ -58,7 +60,7 @@ CONFIGS
 """
 kwargs = {"model": "include:src/configs/decoder.yaml"}
 config = config_from_kwargs(kwargs)
-config = update_config("configs/decoder.yaml", config)
+config = update_config("src/configs/decoder.yaml", config)
 
 if args.target in REGRESSION:
     config = update_config("src/configs/reg_trainer.yaml", config)

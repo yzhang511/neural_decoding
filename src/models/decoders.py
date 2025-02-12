@@ -35,8 +35,10 @@ class BaselineDecoder(LightningModule):
         self.target = config['model']['target']
         self.output_size = config['model']['output_size']
         
-        self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput='uniform_average')
-        self.accuracy = Accuracy(task="multiclass", num_classes=self.output_size)
+        if self.target == "reg":
+            self.r2_score = R2Score(num_outputs=self.output_size, multioutput="uniform_average")
+        elif self.target == "clf":  
+            self.accuracy = Accuracy(task="multiclass", num_classes=self.output_size)
 
     def forward(self, x):
         pass
@@ -58,7 +60,7 @@ class BaselineDecoder(LightningModule):
         pred = self(x)
         if self.target == 'reg':
             loss = F.mse_loss(pred, y)
-            self.r2_score(pred.flatten(), y.flatten())
+            self.r2_score(pred, y)
             self.log(f"{print_str}_metric", self.r2_score, prog_bar=True, logger=True, sync_dist=True)
         elif self.target == 'clf':
             loss = torch.nn.CrossEntropyLoss()(pred, y)
@@ -217,8 +219,10 @@ class BaselineMultiSessionDecoder(LightningModule):
         self.learning_rate = config['optimizer']['lr']
         self.weight_decay = config['optimizer']['weight_decay']
 
-        self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput='uniform_average')
-        self.accuracy = Accuracy(task="multiclass", num_classes=self.output_size)
+        if self.target == "reg":
+            self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput="uniform_average")
+        elif self.target == "clf":
+            self.accuracy = Accuracy(task="multiclass", num_classes=self.output_size)
 
     def forward(self, x):
         pass

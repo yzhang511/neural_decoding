@@ -13,7 +13,7 @@ module load anaconda
 . ~/.bashrc
 echo $TMPDIR
 
-conda activate decoding
+conda activate ibl_repro_ephys
 
 cd /burg/stats/users/yz4123/neural_decoding
 

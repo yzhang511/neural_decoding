@@ -96,6 +96,7 @@ class SingleSessionDataset(Dataset):
                 self.behavior = np.array(tmp["test"][beh_name])
         else:
             self.spike_data = get_binned_spikes(dataset[split])
+            self.behavior = np.array(dataset[split][beh_name])
         
         self.sessions = np.array([eid] * len(self.spike_data))
         self.n_trials, self.n_t_steps, self.n_units = self.spike_data.shape

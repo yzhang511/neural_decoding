@@ -2,17 +2,18 @@
 #SBATCH --account=stats             
 #SBATCH --job-name="single_session"
 #SBATCH --output="single_session.%j.out"
-#SBATCH --nodes=1
-#SBATCH --tasks-per-node=1
-#SBATCH --cpus-per-task=1        
+#SBATCH --gres=gpu:2   
+#SBATCH --constraint=rtx8000
+#SBATCH -c 2       
 #SBATCH --mem 100000
-#SBATCH --time=0-1:00
+#SBATCH --time=0-5:00
 #SBATCH --export=ALL
 
 export TMPDIR=/local
 
 # Load env
 module load anaconda
+module load cuda11.1/toolkit
 python --version
 
 eid=${1}
