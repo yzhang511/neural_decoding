@@ -3,14 +3,14 @@ seed: 42
 dirs:
   checkpoint_dir: checkpoints  
   log_dir: train_logs  
-  data_dir: cached_re_data
+  data_dir: cached_ibl_data
   output_dir: results
 
 training:
-  num_epochs: 10
-  batch_size: 32
+  num_epochs: 1000
+  batch_size: 128
 
-  device: cpu
+  device: gpu
   metric: val_loss
   mode: min
   enable_progress_bar: true
@@ -18,7 +18,7 @@ training:
 
 model: 
   model_class: DECODER   
-  target: clf            
+  target: clf         
   output_size: 2       
 
 data:
@@ -37,11 +37,11 @@ optimizer:
   weight_decay: 1
 
 tuner:
-  num_epochs: 10     # increase if running on hpc
-  num_samples: 1
-  use_gpu: false
+  num_epochs: 1000
+  num_samples: 15
+  use_gpu: true
   num_workers: 1
   metric: val_loss
   mode: min
-  enable_progress_bar: false
+  enable_progress_bar: true
 
