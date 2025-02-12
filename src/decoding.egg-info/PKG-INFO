@@ -1,6 +1,7 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.2
 Name: decoding
 Version: 0.0.1
 Requires-Dist: torch
 Requires-Dist: numpy
 Requires-Dist: tqdm
+Dynamic: requires-dist
