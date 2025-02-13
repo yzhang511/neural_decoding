@@ -108,7 +108,7 @@ if args.search:
     if model_class == "reduced_rank":
         search_space["optimizer"]["lr"] = 0.001 if args.target in CLASSIFICATION else 0.01
         search_space["optimizer"]["weight_decay"] = 1  
-        search_space["reduced_rank"]["temporal_rank"] = tune.randint(1, 15)
+        search_space["reduced_rank"]["temporal_rank"] = tune.randint(1, 30)
         search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "lstm":
