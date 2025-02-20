@@ -25,24 +25,24 @@ from utils.sweep import tune_decoder
 from utils.utils import set_seed
 from utils.config import config_from_kwargs, update_config
 
-BINSIZE = 0.01
+BINSIZE = 0.02
 REGRESSION = ["running_speed", "gaze", "pupil"]
 CLASSIFICATION = ["gabors", "static_gratings", "drifting_gratings"]
 LENGTH_LOOKUP = {
     "gabors": 0.2, 
     "static_gratings": 0.2, 
     "drifting_gratings": 1., 
-    "running_speed": 1., 
-    "gaze": 1., 
-    "pupil": 1.
+    "running_speed": 2., 
+    "gaze": 2., 
+    "pupil": 2.
 }
 OUTPUT_SIZE_LOOKUP = {
     "gabors": 3, 
     "static_gratings": 6, 
     "drifting_gratings": 8, 
-    "running_speed": int(1/BINSIZE), 
-    "gaze": 1, 
-    "pupil": 1
+    "running_speed": int(2/BINSIZE), 
+    "gaze": int(2/BINSIZE),
+    "pupil": int(2/BINSIZE),
 }
 
 """

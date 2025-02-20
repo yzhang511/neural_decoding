@@ -338,7 +338,7 @@ def get_behavior_region(running_speed_dict, pupil_dict=None, gaze_dict=None):
 def sample_free_behavior_splits(
     start, 
     end, 
-    length=1, 
+    length=2, 
     sample_frac=0.7,
 ):
 
@@ -433,7 +433,7 @@ def main():
             supervision_dict.get("gaze", None),
         )
 
-        free_behavior_splits = sample_free_behavior_splits(behavior_start, behavior_end)
+        free_behavior_splits = sample_free_behavior_splits(behavior_start, behavior_end, length=2)
 
         session_dict = {"data": {}, "splits": {}}
 

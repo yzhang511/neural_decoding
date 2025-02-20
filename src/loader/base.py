@@ -39,7 +39,7 @@ def bin_spike_count(
     units, 
     start, 
     end, 
-    binsize=0.01, 
+    binsize=0.02, 
     length=None,
     n_workers=1
 ):
@@ -97,7 +97,7 @@ def bin_target(
     values, 
     start, 
     end, 
-    binsize=0.01, 
+    binsize=0.02, 
     length=None,
     n_workers=1, 
 ):  
@@ -190,7 +190,7 @@ class BaseDataset(Dataset):
         data_dir="./processed", 
         split="train", 
         device="cpu",
-        binsize=0.01,
+        binsize=0.02,
         length=None,
         region="all",
         n_workers=1,
