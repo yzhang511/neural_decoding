@@ -1,5 +1,4 @@
 #!/bin/bash
-
 #SBATCH --account=stats             
 #SBATCH --job-name="re_decode"
 #SBATCH --output="re_decode.%j.out"
@@ -18,11 +17,17 @@ fold_idx=${1}
 target=${2}
 num_epochs=${3}
 
-conda activate ibl_repro_ephys
+conda activate decoding
+
 cd /burg/stats/users/yz4123/neural_decoding
 
-python src/2_decode_multi_region.py --target $target --query_region PO LP DG CA1 VISa --fold_idx $fold_idx --num_epochs $num_epochs --base_path /burg/stats/users/yz4123/Downloads 
+python src/decode_multi_region.py \
+       --target $target \
+       --query_region PO LP DG CA1 VISa \
+       --fold_idx $fold_idx \
+       --num_epochs $num_epochs \
+       --base_path /burg/stats/users/yz4123/Downloads 
 
-cd ./script
+cd ../script
 
 conda deactivate

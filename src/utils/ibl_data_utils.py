@@ -15,9 +15,6 @@ from brainbox.io.one import SpikeSortingLoader, SessionLoader
 from iblatlas.regions import BrainRegions
 from brainbox.population.decode import get_spike_counts_in_bins
 
-from reproducible_ephys_functions import filter_recordings
-from fig_PCA.fig_PCA_load_data import load_dataframe
-
 
 def globalize(func):
     def result(*args, **kwargs):
@@ -67,17 +64,6 @@ def load_spiking_data(one, pid, compute_metrics=False, qc=None, **kwargs):
     
     if qc is None:
         return spikes, clusters_labeled, sampling_freq
-        #concat_df = load_dataframe()
-        #concat_df = filter_recordings(concat_df, min_regions=0)
-        #concat_df = concat_df[concat_df["responsive"]].reset_index()
-        #responsive_cluster_ids = list(concat_df[concat_df["pid"] == pid].cluster_ids)
-        #iok = np.array([True if l in responsive_cluster_ids else False for l in clusters_labeled['cluster_id']])
-        #selected_clusters = clusters_labeled[iok]
-        #spike_idx, ib = ismember(spikes['clusters'], selected_clusters.index)
-        #selected_clusters.reset_index(drop=True, inplace=True)
-        #selected_spikes = {k: v[spike_idx] for k, v in spikes.items()}
-        #selected_spikes['clusters'] = selected_clusters.index[ib].astype(np.int32)
-        #return selected_spikes, selected_clusters, sampling_freq
     else:
         iok = clusters_labeled['label'] >= qc
         selected_clusters = clusters_labeled[iok]
@@ -741,7 +727,7 @@ def bin_behaviors(
     return behave_dict, mask_dict
 
 
-def prepare_data(one, eid, bwm_df, params, n_workers=os.cpu_count()):
+def prepare_data(one, eid, params, n_workers=os.cpu_count()):
     
     # when merging probes we are interested in eids, not pids
     pids, probe_names = one.eid2pid(eid)

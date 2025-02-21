@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account=stats             
-#SBATCH --job-name="re_filter"
-#SBATCH --output="re_filter.%j.out"
+#SBATCH --job-name="data"
+#SBATCH --output="data.%j.out"
 #SBATCH --nodes=1
 #SBATCH --tasks-per-node=1
 #SBATCH --cpus-per-task=1        
@@ -11,10 +11,19 @@
 module load anaconda
 
 . ~/.bashrc
-echo $TMPDIR
-conda activate ibl_repro_ephys
-cd /burg/stats/users/yz4123/neural_decoding
-python src/0_data_filtering.py --base_path /burg/stats/users/yz4123/Downloads
-conda deactivate
-cd ../scripts
 
+eid=${1}
+
+echo $TMPDIR
+
+conda activate decoding
+
+cd /burg/stats/users/yz4123/neural_decoding
+
+python src/download_data.py \
+       --eid $eid \
+       --base_path /burg/stats/users/yz4123/Downloads
+
+conda deactivate
+
+cd ../scripts

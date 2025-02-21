@@ -3,14 +3,14 @@ seed: 42
 dirs:
   checkpoint_dir: checkpoints  
   log_dir: train_logs  
-  data_dir: cached_re_data
+  data_dir: ibl_aligned/fold_5   # Change this if you want to use a different fold for cross-validation
   output_dir: results
 
 training:
-  num_epochs: 10
+  num_epochs: 1000
   batch_size: 32
 
-  device: cpu
+  device: gpu
   metric: val_loss
   mode: min
   enable_progress_bar: true
@@ -18,7 +18,7 @@ training:
 
 model: 
   model_class: DECODER   
-  target: clf            
+  target: clf         
   output_size: 2       
 
 data:
@@ -37,11 +37,10 @@ optimizer:
   weight_decay: 1
 
 tuner:
-  num_epochs: 10     # increase if running on hpc
-  num_samples: 1
-  use_gpu: false
+  num_epochs: 1000
+  num_samples: 15    # number of random models to sample from
+  use_gpu: true      # false if not using ray tune on gpus
   num_workers: 1
   metric: val_loss
   mode: min
-  enable_progress_bar: false
-
+  enable_progress_bar: true

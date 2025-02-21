@@ -16,12 +16,10 @@ from utils.ibl_data_utils import (
 )
 from utils.dataset_utils import create_dataset, upload_dataset
 
-from reproducible_ephys_functions import filter_recordings
-from fig_PCA.fig_PCA_load_data import load_dataframe
-
 ap = argparse.ArgumentParser()
+ap.add_argument("--eid", type=str, default=None)
 ap.add_argument("--base_path", type=str, default="EXAMPLE_PATH")
-ap.add_argument("--fold_idx", type=int, default=1)
+ap.add_argument("--fold_idx", type=int, default=5)
 ap.add_argument("--n_workers", type=int, default=1)
 args = ap.parse_args()
 
@@ -31,40 +29,34 @@ assert args.fold_idx > 0, "Fold idx must be from 1 to 5."
 
 one = ONE(
     base_url='https://openalyx.internationalbrainlab.org', 
-    password='international', silent=True,
+    password='international', 
+    silent=True,
     cache_dir = args.base_path
 )
-
-freeze_file = 'data/bwm_release.csv'
-bwm_df = pd.read_csv(freeze_file, index_col=0)
-
-concat_df = load_dataframe()
-concat_df = filter_recordings(concat_df, min_regions=0)
-
 # Trial setup
 params = {
-    'interval_len': 2, 'binsize': 0.05, 'single_region': False,
+    'interval_len': 2, 'binsize': 0.02, 'single_region': False,
     'align_time': 'stimOn_times', 'time_window': (-.5, 1.5)
 }
 
 beh_names = ['choice', 'reward', 'stimside', 'wheel-speed', 'whisker-motion-energy']
 
-include_eids = np.unique(concat_df.eid)
-bad_eids = []
+if args.eid is not None:
+    include_eids = [args.eid]
+else:
+    with open("../data/repro_ephys_release.txt") as file:
+        include_eids = [line.rstrip().replace("'", "") for line in file]
 
 print(f"Preprocess a total of {len(include_eids)} EIDs.")
 
 num_neurons = []
 for eid_idx, eid in enumerate(include_eids):
 
-    if eid in bad_eids:
-       continue
-
     print('==========================')
     print(f'Preprocess session {eid}:')
 
     # Load and preprocess data
-    neural_dict, behave_dict, meta_data, trials_data = prepare_data(one, eid, bwm_df, params, n_workers=args.n_workers)
+    neural_dict, behave_dict, meta_data, trials_data = prepare_data(one, eid, params, n_workers=args.n_workers)
     regions, beryl_reg = list_brain_regions(neural_dict, **params)
    
     region_cluster_ids = select_brain_regions(neural_dict, beryl_reg, regions, **params)
@@ -132,15 +124,15 @@ for eid_idx, eid in enumerate(include_eids):
         continue
     
     train_dataset = create_dataset(
-        aligned_binned_spikes[train_idxs], bwm_df, eid, params, 
+        aligned_binned_spikes[train_idxs], eid, params, 
         binned_behaviors=train_beh, meta_data=meta_data
     )
     val_dataset = create_dataset(
-        aligned_binned_spikes[val_idxs], bwm_df, eid, params, 
+        aligned_binned_spikes[val_idxs], eid, params, 
         binned_behaviors=val_beh, meta_data=meta_data
     )
     test_dataset = create_dataset(
-        aligned_binned_spikes[test_idxs], bwm_df, eid, params, 
+        aligned_binned_spikes[test_idxs], eid, params, 
         binned_behaviors=test_beh, meta_data=meta_data
     )
 
@@ -153,13 +145,11 @@ for eid_idx, eid in enumerate(include_eids):
     print(partitioned_dataset)
 
     # Cache dataset
-    save_path = Path(args.base_path)/'cached_re_data'/f'fold_{args.fold_idx}'
+    save_path = Path(args.base_path)/'ibl_aligned'/f'fold_{args.fold_idx}'
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     partitioned_dataset.save_to_disk(f'{save_path}/{eid}')
 
-    print(f'Cached session {eid}.')
-    print(f'Progress: {eid_idx+1} / {len(include_eids)} sessions cached.')
-
-print(f"Min: {min(num_neurons)} max: {max(num_neurons)} mean: {sum(num_neurons)/len(num_neurons)} # of neurons.")
+    print(f'Downloaded session {eid}.')
+    print(f'Progress: {eid_idx+1} / {len(include_eids)} sessions downloaded.')
 
