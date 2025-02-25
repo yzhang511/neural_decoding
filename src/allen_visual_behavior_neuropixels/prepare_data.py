@@ -433,7 +433,7 @@ def main():
             supervision_dict.get("gaze", None),
         )
 
-        free_behavior_splits = sample_free_behavior_splits(behavior_start, behavior_end, length=2)
+        free_behavior_splits = sample_free_behavior_splits(behavior_start, behavior_end, length=1)
 
         session_dict = {"data": {}, "splits": {}}
 

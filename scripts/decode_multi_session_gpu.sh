@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --account=stats             
-#SBATCH --job-name="single_session"
-#SBATCH --output="single_session.%j.out"
+#SBATCH --job-name="multi"
+#SBATCH --output="multi.%j.out"
 #SBATCH --gres=gpu:1   
 #SBATCH --constraint=rtx8000
 #SBATCH -c 1       
 #SBATCH --mem 100000
-#SBATCH --time=0-2:00
+#SBATCH --time=0-1:00
 #SBATCH --export=ALL
 
 export TMPDIR=/local
@@ -16,10 +16,8 @@ module load anaconda
 module load cuda11.1/toolkit
 python --version
 
-session_id=${1}
-target=${2}
-method=${3}
-search=${4}
+target=${1}
+search=${2}
 
 if [ "$search" = "True" ]; then
     echo "Doing hyperparameter search"
@@ -81,10 +79,8 @@ conda activate decoding
 
 cd ..
 
-python src/decode_single_session.py \
-    --session_id $session_id \
+python src/decode_multi_session.py \
     --target $target \
-    --method $method \
     --base_path /burg/stats/users/yz4123/allen/ \
     --n_workers "$SLURM_CPUS_PER_TASK" \
     $search

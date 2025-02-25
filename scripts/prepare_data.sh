@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account=stats             
-#SBATCH --job-name="prepare"
-#SBATCH --output="prepare.%j.out"
+#SBATCH --job-name="data"
+#SBATCH --output="data.%j.out"
 #SBATCH --nodes=1
 #SBATCH --tasks-per-node=1
 #SBATCH --cpus-per-task=1        

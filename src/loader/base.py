@@ -258,6 +258,7 @@ class BaseDataset(Dataset):
             np.save(f"{cached_dir}/start.npy", start)
             np.save(f"{cached_dir}/end.npy", end)
         
+        spike_count = spike_count.transpose(0, 2, 1)
         self.num_trials, self.num_timesteps, self.num_units = spike_count.shape
         self.sessions = np.array([session_id] * self.num_trials)
         self.regions = np.array([region] * self.num_trials)
@@ -342,7 +343,12 @@ class MultiSessionDataModule(LightningDataModule):
         super().__init__()
         self.session_ids = session_ids
         self.configs = configs
-        self.batch_size = configs[0].get("training", {}).get("batch_size", 16)
+        self.batch_size = configs[0].get("training", {}).get("batch_size", 128)
+
+    def update_config(self):
+        for config in self.configs:
+            dm = SingleSessionDataModule(config)
+            dm.update_config()
 
     def setup(self, stage=None):
         """Call this function to load and preprocess data."""
@@ -354,10 +360,10 @@ class MultiSessionDataModule(LightningDataModule):
                 DataLoader(dm.train, batch_size = self.batch_size, shuffle=True)
             )
             self.val.append(
-                DataLoader(dm.val, batch_size = self.batch_size, shuffle=False, drop_last=True)
+                DataLoader(dm.val, batch_size = self.batch_size, shuffle=False, drop_last=False)
             )
             self.test.append(
-                DataLoader(dm.test, batch_size = self.batch_size, shuffle=False, drop_last=True)
+                DataLoader(dm.test, batch_size = self.batch_size, shuffle=False, drop_last=False)
             )
 
     def train_dataloader(self):

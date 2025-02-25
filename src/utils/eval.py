@@ -31,17 +31,19 @@ def eval_model(
     # Load data
     train_x, train_y = [], []
     for (x, y, region, eid) in train:
-        train_x.append(x.cpu())
-        train_y.append(y.cpu())
+        for idx in range(x.shape[0]):
+            train_x.append(x[idx].cpu())
+            train_y.append(y[idx].cpu())
 
     test_x, test_y = [], []
     for (x, y, region, eid) in test:
-        test_x.append(x.cpu())
-        test_y.append(y.cpu())
+        for idx in range(x.shape[0]):
+            test_x.append(x[idx].cpu())
+            test_y.append(y[idx].cpu())
         
     if training_type == 'multi-sess':
-        train_x, train_y = torch.vstack(train_x), torch.vstack(train_y)
-        test_x, test_y = torch.vstack(test_x), np.vstack(test_y)
+        train_x, train_y = torch.stack(train_x), torch.stack(train_y)
+        test_x, test_y = torch.stack(test_x), np.stack(test_y)
     elif training_type == 'single-sess':
         train_x, train_y = torch.stack(train_x), torch.stack(train_y)
         test_x, test_y = torch.stack(test_x), np.stack(test_y)

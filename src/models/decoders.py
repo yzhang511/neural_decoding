@@ -137,14 +137,20 @@ class MLPDecoder(BaselineDecoder):
         self.drop_out = config["mlp"]["drop_out"]
         
         # Input processing (shared across time steps)
-        self.input_layer = torch.nn.Linear(self.n_units*self.n_t_steps, self.hidden_size[0])
-        
-        # Hidden layers with ReLU and Dropout
-        self.hidden = torch.nn.ModuleList()
+        self.input_layer = torch.nn.Linear(self.n_units, self.hidden_size[0])
+
+        self.hidden_lower = torch.nn.ModuleList()
         for l in range(len(self.hidden_size)-1):
-            self.hidden.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
-            self.hidden.append(torch.nn.ReLU())
-            self.hidden.append(torch.nn.Dropout(self.drop_out))
+            self.hidden_lower.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
+            self.hidden_lower.append(torch.nn.ReLU())
+            self.hidden_lower.append(torch.nn.Dropout(self.drop_out))
+        self.flat_layer = torch.nn.Linear(self.hidden_size[-1]*self.n_t_steps, self.hidden_size[0])
+        
+        self.hidden_upper = torch.nn.ModuleList()
+        for l in range(len(self.hidden_size)-1):
+            self.hidden_upper.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
+            self.hidden_upper.append(torch.nn.ReLU())
+            self.hidden_upper.append(torch.nn.Dropout(self.drop_out))
         
         # Final output layer
         self.output_layer = torch.nn.Linear(self.hidden_size[-1], self.output_size)
@@ -152,10 +158,14 @@ class MLPDecoder(BaselineDecoder):
 
     def forward(self, x):
         # Process input through shared time-step layers
-        x = self.input_layer(x.flatten(1))  # (batch, n_t_steps, hidden_size[0])
+        x = self.input_layer(x) 
         
-        for layer in self.hidden:
-            x = layer(x)  # (batch, n_t_steps, hidden_size[-2])
+        for layer in self.hidden_lower:
+            x = layer(x)
+        x = F.relu(self.flat_layer(x.flatten(start_dim=1)))
+
+        for layer in self.hidden_upper:
+            x = layer(x)
         
         pred = self.output_layer(x)
         return pred
@@ -188,9 +198,7 @@ class LSTMDecoder(BaselineDecoder):
             bidirectional=False  # Maintain parameter efficiency
         )
 
-        self.input_layer = torch.nn.Linear(self.lstm_hidden_size*self.n_t_steps, self.hidden_size[0])
-        
-        # Hidden layers with ReLU and Dropout
+        self.input_layer = torch.nn.Linear(self.lstm_hidden_size, self.hidden_size[0])
         self.hidden = torch.nn.ModuleList()
         for l in range(len(self.hidden_size)-1):
             self.hidden.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
@@ -204,13 +212,10 @@ class LSTMDecoder(BaselineDecoder):
 
     def forward(self, x):
         # LSTM processing
-        lstm_out, _ = self.lstm(x)  # (batch, seq_len, hidden_size)
-        
-        x = self.input_layer(lstm_out.flatten(1))  # (batch, n_t_steps, hidden_size[0])
-        
+        lstm_out, _ = self.lstm(x) 
+        x = F.relu(self.input_layer(lstm_out[:,-1])) 
         for layer in self.hidden:
-            x = layer(x)  # (batch, n_t_steps, hidden_size[-2])
-        
+            x = layer(x) 
         pred = self.output_layer(x)
         return pred
 
@@ -241,7 +246,7 @@ class BaselineMultiSessionDecoder(LightningModule):
         self.weight_decay = config["optimizer"]["weight_decay"]
 
         if self.target == "reg":
-            self.r2_score = R2Score(num_outputs=self.output_size)
+            self.r2_score = R2Score(num_outputs=self.output_size, multioutput="uniform_average")
         elif self.target == "clf":
             self.accuracy = Accuracy(task="multiclass", num_classes=self.output_size)
         else:
@@ -258,7 +263,6 @@ class BaselineMultiSessionDecoder(LightningModule):
             # each batch has len(batch) eids and regions but we only need one string for each entry
             # each batch consists of data from same session and region
             pred = self(x, eid[0], region[0])
-            loss[idx] = torch.nn.MSELoss()(pred, y)
             if self.target == "reg":
                 loss[idx] = torch.nn.MSELoss()(pred, y)
             elif self.target == "clf":
@@ -266,7 +270,7 @@ class BaselineMultiSessionDecoder(LightningModule):
             else:
                 raise NotImplementedError
         loss = torch.mean(loss)
-        self.log("loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+        self.log("loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     def validation_step(self, batch, batch_idx, print_str="val"):
@@ -279,15 +283,15 @@ class BaselineMultiSessionDecoder(LightningModule):
             pred = self(x, eid[0], region[0])
             if self.target == "reg":
                 loss[idx] = torch.nn.MSELoss()(pred, y)
-                metric[idx] = self.r2_score(pred.flatten(), y.flatten())
+                metric[idx] = self.r2_score(pred, y)
             elif self.target == "clf":
-                loss = torch.nn.CrossEntropyLoss()(pred, y)
+                loss[idx] = torch.nn.CrossEntropyLoss()(pred, y)
                 metric[idx] = self.accuracy(F.softmax(pred, dim=1).argmax(1), y)
             else:
                 raise NotImplementedError
         loss, metric = torch.mean(loss), torch.mean(metric)
-        self.log(f"{print_str}_loss", loss, prog_bar=True, logger=True, sync_dist=True)
-        self.log(f"{print_str}_metric", metric, prog_bar=True, logger=True, sync_dist=True)
+        self.log(f"{print_str}_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f"{print_str}_metric", metric, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     def test_step(self, batch, batch_idx):
@@ -317,7 +321,7 @@ class MultiSessionReducedRankDecoder(BaselineMultiSessionDecoder):
             bs: a list of intercept terms, e.g., [(output_size,), (output_size,), ...].
         """
         super().__init__(config)
-        self.temporal_rank = config["temporal_rank"]
+        self.temporal_rank = config["reduced_rank"]["temporal_rank"]
         self.eid_to_indx = config["eid_to_indx"]
         self.n_units = config["num_units"]
 
@@ -358,8 +362,8 @@ class MultiRegionReducedRankDecoder(BaselineMultiSessionDecoder):
             bs: a list of intercept terms, e.g., [(output_size,), (output_size,), ...].
         """
         super().__init__(config)
-        self.temporal_rank = config["temporal_rank"]
-        self.global_basis_rank = config["global_basis_rank"]
+        self.temporal_rank = config["reduced_rank"]["temporal_rank"]
+        self.global_basis_rank = config["reduced_rank"]["global_basis_rank"]
         self.n_regions = config["n_regions"]
         self.region_to_indx = config["region_to_indx"]
         self.eid_region_to_indx = config["eid_region_to_indx"]
