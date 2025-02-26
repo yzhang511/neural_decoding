@@ -58,6 +58,7 @@ ap.add_argument("--region", type=str, default="all")
 ap.add_argument("--search", action="store_true")
 ap.add_argument("--method", type=str, default="linear", choices=["linear", "reduced_rank", "mlp", "lstm"])
 ap.add_argument("--n_workers", type=int, default=1)
+ap.add_argument("--eval", action="store_true")
 args = ap.parse_args()
 
 
@@ -193,6 +194,8 @@ if args.search:
     print("Best model config:")
     print(best_config)
 
+    torch.save(best_config, ckpt_path / "best_config.pth")
+
 
 if not args.search:
     best_config = search_space
@@ -200,6 +203,9 @@ if not args.search:
 # set up data loader
 dm = SingleSessionDataModule(best_config)
 dm.update_config()
+
+if args.eval:
+    best_config = torch.load(ckpt_path / "best_config.pth")
 
 # init and train model
 if model_class == "reduced_rank":
@@ -209,6 +215,7 @@ elif model_class == "lstm":
 elif model_class == "mlp":
     model = MLPDecoder(best_config)
 elif model_class == "linear":
+    from scipy.stats import loguniform
     param_dist = loguniform(1e-4, 1e4)
     if args.target in REGRESSION:
         model = RandomizedSearchCV(
@@ -228,7 +235,7 @@ else:
     raise NotImplementedError
 
 
-if model_class != "linear":
+if (not args.eval) and (model_class != "linear"):
     model.to(best_config["training"]["device"])
 
     # set up trainer
@@ -247,13 +254,19 @@ if model_class != "linear":
     )
 
     trainer.fit(model, datamodule=dm)
-    train_dataset, test_dataset = dm.train, dm.test
+else:
+    ckpt_file = [f for f in os.listdir(ckpt_path) if f.endswith(".ckpt")][0]
+    model.load_state_dict(torch.load(ckpt_path/ckpt_file))
+    model.to(best_config["training"]["device"])
 
 """
 ----------
 EVALUATION
 ----------
 """
+
+train_dataset, test_dataset = dm.train, dm.test
+
 if model_class != "linear":
     model.eval()
     with torch.no_grad():

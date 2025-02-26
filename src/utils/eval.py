@@ -28,23 +28,30 @@ def eval_model(
         model_class: options = ['linear', 'reduced_rank', 'mlp', 'lstm'].
         training_type: options = ['single-sess', 'multi-sess'].
     """
-    # Load data
-    train_x, train_y = [], []
-    for (x, y, region, eid) in train:
-        for idx in range(x.shape[0]):
-            train_x.append(x[idx].cpu())
-            train_y.append(y[idx].cpu())
-
-    test_x, test_y = [], []
-    for (x, y, region, eid) in test:
-        for idx in range(x.shape[0]):
-            test_x.append(x[idx].cpu())
-            test_y.append(y[idx].cpu())
-        
     if training_type == 'multi-sess':
+        train_x, train_y = [], []
+        for (x, y, region, eid) in train:
+            for idx in range(x.shape[0]):
+                train_x.append(x[idx].cpu())
+                train_y.append(y[idx].cpu())
+
+        test_x, test_y = [], []
+        for (x, y, region, eid) in test:
+            for idx in range(x.shape[0]):
+                test_x.append(x[idx].cpu())
+                test_y.append(y[idx].cpu())
         train_x, train_y = torch.stack(train_x), torch.stack(train_y)
         test_x, test_y = torch.stack(test_x), np.stack(test_y)
     elif training_type == 'single-sess':
+        train_x, train_y = [], []
+        for (x, y, region, eid) in train:
+            train_x.append(x.cpu())
+            train_y.append(y.cpu())
+
+        test_x, test_y = [], []
+        for (x, y, region, eid) in test:
+            test_x.append(x.cpu())
+            test_y.append(y.cpu())
         train_x, train_y = torch.stack(train_x), torch.stack(train_y)
         test_x, test_y = torch.stack(test_x), np.stack(test_y)
     else:
