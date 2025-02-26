@@ -128,7 +128,7 @@ if args.search:
         num_timesteps = int(search_space["length"]/BINSIZE)
         search_space["optimizer"]["lr"] = 0.001 if args.target in CLASSIFICATION else 0.01
         search_space["optimizer"]["weight_decay"] = 1  
-        search_space["reduced_rank"]["temporal_rank"] = tune.randint(1, 15)
+        search_space["reduced_rank"]["temporal_rank"] = tune.randint(1, num_timesteps//2)
         search_space["tuner"]["num_epochs"] = config.tuner.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "lstm":
@@ -235,29 +235,31 @@ else:
     raise NotImplementedError
 
 
-if (not args.eval) and (model_class != "linear"):
-    model.to(best_config["training"]["device"])
+if model_class != "linear":
+    if not args.eval:
+        model.to(best_config["training"]["device"])
 
-    # set up trainer
-    checkpoint_callback = ModelCheckpoint(
-        monitor=config.training.metric, 
-        mode=config.training.mode, 
-        dirpath=ckpt_path
-    )
-    trainer = Trainer(
-        max_epochs=config.training.num_epochs, 
-        callbacks=[checkpoint_callback], 
-        enable_progress_bar=config.training.enable_progress_bar,
-        check_val_every_n_epoch=1 if model_class == "reduced_rank" else 10, # Otherwise too slow
-        devices=1, # Use only one GPU
-        strategy="auto",  
-    )
+        # set up trainer
+        checkpoint_callback = ModelCheckpoint(
+            monitor=config.training.metric, 
+            mode=config.training.mode, 
+            dirpath=ckpt_path
+        )
+        trainer = Trainer(
+            max_epochs=config.training.num_epochs, 
+            callbacks=[checkpoint_callback], 
+            enable_progress_bar=config.training.enable_progress_bar,
+            check_val_every_n_epoch=1 if model_class == "reduced_rank" else 10, # Otherwise too slow
+            devices=1, # Use only one GPU
+            strategy="auto",  
+        )
 
-    trainer.fit(model, datamodule=dm)
-else:
-    ckpt_file = [f for f in os.listdir(ckpt_path) if f.endswith(".ckpt")][0]
-    model.load_state_dict(torch.load(ckpt_path/ckpt_file))
-    model.to(best_config["training"]["device"])
+        trainer.fit(model, datamodule=dm)
+        
+    else:
+        ckpt_file = [f for f in os.listdir(ckpt_path) if f.endswith(".ckpt")][0]
+        model.load_state_dict(torch.load(ckpt_path/ckpt_file))
+        model.to(best_config["training"]["device"])
 
 """
 ----------
@@ -265,9 +267,8 @@ EVALUATION
 ----------
 """
 
-train_dataset, test_dataset = dm.train, dm.test
-
 if model_class != "linear":
+    train_dataset, test_dataset = dm.train, dm.test
     model.eval()
     with torch.no_grad():
         metric, test_pred, test_y = eval_model(
