@@ -64,6 +64,18 @@ Optionally, you can run the following to decode a single session using RRR w/o h
 sbatch 2_decode_single_session_gpu.sh d23a44ef-1402-4ed7-97f5-47e9a7a504d9 wheel-speed reduced_rank
 ```
 
+### Multi-Session
 
+First, run hyperparameter tuning on a 10-session model to find the best model hyperparameters. The first step is to run `1_data_caching.sh` to download the data from the 10 sessions. Then, run the following:
+```
+sbatch 3_decode_multi_session_tune.sh wheel-speed True
+```
+From the output, find the best model hyperparameters and manually change `configs/decoder.yaml` to use the best hyperparameters.
+
+Then, fit the model on more IBL sessions (download the data before running the following):
+```
+sbatch 3_decode_multi_session_gpu.sh wheel-speed
+```
+Remember to change the requested time or GPU numbers in the slurm script.
 
 

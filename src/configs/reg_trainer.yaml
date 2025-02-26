@@ -42,5 +42,5 @@ tuner:
   use_gpu: true
   num_workers: 1
   metric: val_metric # val_loss
-  mode: max #min
+  mode: max # min
   enable_progress_bar: true

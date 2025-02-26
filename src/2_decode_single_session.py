@@ -5,7 +5,7 @@ import argparse
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import RandomizedSearchCV
 from sklearn.linear_model import Ridge, LogisticRegression
 import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -102,8 +102,17 @@ search_space["training"]["device"] = torch.device(
 # set up for hyperparameter sweep    
 if args.search:
 
-    search_space["optimizer"]["lr"] = tune.loguniform(1e-3, 5e-2)
+    search_space["optimizer"]["lr"] = tune.loguniform(1e-3, 1e-2)
     search_space["optimizer"]["weight_decay"] = tune.loguniform(0.01, 1.)
+
+    from itertools import combinations
+    def generate_mlp_hyperparams(possible_sizes=[256, 128, 64, 32, 16]):
+        hyperparams = []
+        for length in range(2, len(possible_sizes)):
+            for combo in combinations(possible_sizes, length):
+                if all(combo[i] > combo[i+1] for i in range(len(combo)-1)):
+                    hyperparams.append(f"({', '.join(map(str, combo))})")
+        return hyperparams
     
     if model_class == "reduced_rank":
         search_space["optimizer"]["lr"] = 0.001 if args.target in CLASSIFICATION else 0.01
@@ -113,16 +122,17 @@ if args.search:
         search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "lstm":
         search_space["lstm"]["lstm_n_layers"] = tune.randint(1, 3)
-        search_space["lstm"]["lstm_hidden_size"] = tune.choice([32, 64, 128])
-        search_space["lstm"]["mlp_hidden_size"] = tune.choice(["(32)", "(64)", "(128)"])
+        search_space["lstm"]["lstm_hidden_size"] = tune.choice([32, 64, 128, 256, 512])
+        search_space["lstm"]["mlp_hidden_size"] = tune.choice(
+            generate_mlp_hyperparams(possible_sizes=[256, 128, 64, 32, 16])
+        )
         search_space["lstm"]["drop_out"] = tune.uniform(0.1, 0.3)
         search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "mlp":
-        mlp_hyperparams = [
-            "(256, 128, 64, 32)", "(128, 64, 32)", "(64, 32)",
-        ]
-        search_space["mlp"]["mlp_hidden_size"] = tune.choice(mlp_hyperparams)
+        search_space["mlp"]["mlp_hidden_size"] = tune.choice(
+            generate_mlp_hyperparams(possible_sizes=[512, 256, 128, 64, 32, 16])
+        )
         search_space["mlp"]["drop_out"] = tune.uniform(0.1, 0.3)
         search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
@@ -181,7 +191,6 @@ if not args.search:
 dm = SingleSessionDataModule(best_config)
 dm.update_config()
 
-
 # init and train model
 if model_class == "reduced_rank":
     model = ReducedRankDecoder(best_config)
@@ -190,10 +199,20 @@ elif model_class == "lstm":
 elif model_class == "mlp":
     model = MLPDecoder(best_config)
 elif model_class == "linear":
+    from scipy.stats import loguniform
+    param_dist = loguniform(1e-4, 1e4)
     if args.target in REGRESSION:
-        model = GridSearchCV(Ridge(), {"alpha": [1e-4, 1e-3, 1e-2, 1e-1, 1, 1e1]})
+        model = RandomizedSearchCV(
+            Ridge(), 
+            param_distributions={"alpha": param_dist},
+            n_iter=config.tuner.num_samples, cv=5, random_state=config.seed
+        )
     elif args.target in CLASSIFICATION:
-        model = GridSearchCV(LogisticRegression(), {"C": [1, 1e1, 1e2, 1e3, 1e4]})
+        model = RandomizedSearchCV(
+            LogisticRegression(max_iter=1000), 
+            param_distributions={"C": param_dist},
+            n_iter=config.tuner.num_samples, cv=5, random_state=config.seed
+        )
     else:
         raise NotImplementedError
 else:

@@ -33,22 +33,31 @@ def eval_model(
             'reg': regression for continuous behavior.
         model_class: options = ['linear', 'reduced_rank', 'mlp', 'lstm'].
         training_type: options = ['single-sess', 'multi-sess'].
-    """
-    # Load data
-    train_x, train_y = [], []
-    for (x, y, region, eid) in train:
-        train_x.append(x.cpu())
-        train_y.append(y.cpu())
-
-    test_x, test_y = [], []
-    for (x, y, region, eid) in test:
-        test_x.append(x.cpu())
-        test_y.append(y.cpu())
-        
+    """        
     if training_type == 'multi-sess':
-        train_x, train_y = torch.vstack(train_x), torch.vstack(train_y)
-        test_x, test_y = torch.vstack(test_x), np.vstack(test_y)
+        train_x, train_y = [], []
+        for (x, y, region, eid) in train:
+            for idx in range(x.shape[0]):
+                train_x.append(x[idx].cpu())
+                train_y.append(y[idx].cpu())
+
+        test_x, test_y = [], []
+        for (x, y, region, eid) in test:
+            for idx in range(x.shape[0]):
+                test_x.append(x[idx].cpu())
+                test_y.append(y[idx].cpu())
+        train_x, train_y = torch.stack(train_x), torch.stack(train_y)
+        test_x, test_y = torch.stack(test_x), np.stack(test_y)
     elif training_type == 'single-sess':
+        train_x, train_y = [], []
+        for (x, y, region, eid) in train:
+            train_x.append(x.cpu())
+            train_y.append(y.cpu())
+
+        test_x, test_y = [], []
+        for (x, y, region, eid) in test:
+            test_x.append(x.cpu())
+            test_y.append(y.cpu())
         train_x, train_y = torch.stack(train_x), torch.stack(train_y)
         test_x, test_y = torch.stack(test_x), np.stack(test_y)
     else:
@@ -124,28 +133,28 @@ def eval_multi_session_model(
     metric_lst, chance_metric_lst, test_pred_lst, test_y_lst = [], [], [], []
     for idx, (train, test) in enumerate(zip(train_lst, test_lst)):
         eid = configs[idx]['eid']
+        region = configs[idx]['region']
         kwargs = {
             "eid": eid,
             "beh": beh_name,
-            "region": "all",
-            "save_path": save_path/region/eid,
+            "region": region,
+            "save_path": save_path,
             "data_dir": data_dir,
             "huggingface_org": huggingface_org,
             "load_local": load_local,
         }
-        metric, chance_metric, test_pred, test_y = eval_model(
+        metric, test_pred, test_y = eval_model(
             train, test, model, 
             target=target, 
             model_class=model_class, 
             training_type='multi-sess',
-            **kwargs
+            # **kwargs
         )
         metric_lst.append(metric)
-        chance_metric_lst.append(chance_metric)
         test_pred_lst.append(test_pred)
         test_y_lst.append(test_y)
 
-    return metric_lst, chance_metric_lst, test_pred_lst, test_y_lst
+    return metric_lst, test_pred_lst, test_y_lst
 
 
 # --------------------------
@@ -194,24 +203,23 @@ def eval_multi_region_model(
             "eid": eid,
             "beh": beh_name,
             "region": region,
-            "save_path": save_path/region/eid,
+            "save_path": save_path,
             "data_dir": data_dir,
             "huggingface_org": huggingface_org,
             "load_local": load_local,
         }
-        metric, chance_metric, test_pred, test_y = eval_model(
+        metric, test_pred, test_y = eval_model(
             train, test, model, 
             target=target, 
             model_class=model_class, 
             training_type='multi-sess',
-            **kwargs
+            # **kwargs
         )
         metric_dict[region][eid] = metric
-        chance_metric_dict[region][eid] = chance_metric
         test_pred_dict[region][eid] = test_pred
         test_y_dict[region][eid] = test_y
 
-    return metric_dict, chance_metric_dict, test_pred_dict, test_y_dict
+    return metric_dict, test_pred_dict, test_y_dict
     
 
 # ----------------

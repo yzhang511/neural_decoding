@@ -208,7 +208,12 @@ class MultiSessionDataModule(LightningDataModule):
         super().__init__()
         self.eids = eids
         self.configs = configs
-        self.batch_size = configs[0]['training']['batch_size']
+        self.batch_size = configs[0].get("training", {}).get("batch_size", 32)
+
+    def update_config(self):
+        for config in self.configs:
+            dm = SingleSessionDataModule(config)
+            dm.update_config()
 
     def setup(self, stage=None):
         """Call this function to load and preprocess data."""
