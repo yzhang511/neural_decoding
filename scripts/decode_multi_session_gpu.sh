@@ -6,7 +6,7 @@
 #SBATCH --constraint=rtx8000
 #SBATCH -c 1       
 #SBATCH --mem 100000
-#SBATCH --time=0-1:00
+#SBATCH --time=0-12:00
 #SBATCH --export=ALL
 
 export TMPDIR=/local

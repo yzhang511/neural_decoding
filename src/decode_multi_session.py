@@ -90,9 +90,6 @@ LOAD DATA
 ---------
 """
 eids = [fname.replace(".pkl", "") for fname in os.listdir(config.dirs.data_dir) if fname.endswith(".pkl")]
-print('---------------------------------------------')
-print(f'Decode {args.target} from {len(eids)} sessions:')
-print(eids)
 
 # Filter out sessions with missing train / val / test data
 invalid_eids = [
@@ -109,6 +106,13 @@ if invalid_eids:
     print(f"Found {len(invalid_eids)} sessions with missing train or val or test data:")
     for invalid_eid in invalid_eids:
         print(f"- {invalid_eid}")
+
+# Filter out invalid sessions from eids
+eids = [eid for eid in eids if eid not in invalid_eids]
+
+print('---------------------------------------------')
+print(f'Decode {args.target} from {len(eids)} sessions:')
+print(eids)
 
 """
 --------
