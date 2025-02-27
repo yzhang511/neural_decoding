@@ -1,6 +1,8 @@
 """Example script for running multi-session reduced-rank model with hyperparameter sweep.
 """
 import os
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+os.environ["TORCH_USE_CUDA_DSA"] = "1"
 import argparse
 import numpy as np
 import pandas as pd
@@ -22,7 +24,7 @@ from utils.sweep import tune_decoder
 from utils.utils import set_seed
 from utils.config import config_from_kwargs, update_config
 
-BINSIZE = 0.02
+BINSIZE = 0.01
 REGRESSION = ["running_speed", "gaze", "pupil"]
 CLASSIFICATION = ["gabors", "static_gratings", "drifting_gratings"]
 LENGTH_LOOKUP = {
@@ -87,7 +89,7 @@ model_class = args.method
 LOAD DATA
 ---------
 """
-eids = [fname.replace(".pkl", "") for fname in os.listdir(config.dirs.data_dir) if fname.endswith(".pkl")][:2]
+eids = [fname.replace(".pkl", "") for fname in os.listdir(config.dirs.data_dir) if fname.endswith(".pkl")]
 print('---------------------------------------------')
 print(f'Decode {args.target} from {len(eids)} sessions:')
 print(eids)
@@ -105,7 +107,7 @@ print(f'Launch multi-session {model_class} decoder:')
 search_space = config.copy()
 search_space["target"] = args.target
 search_space["length"] = LENGTH_LOOKUP[args.target]
-search_space["output_size"] = OUTPUT_SIZE_LOOKUP[args.target]
+search_space["model"]["output_size"] = OUTPUT_SIZE_LOOKUP[args.target]
 search_space["region"] = args.region if args.region != "all" else "all"
 search_space["training"]["device"] = torch.device(
     "cuda" if np.logical_and(torch.cuda.is_available(), config.training.device == "gpu") else "cpu"
@@ -118,7 +120,7 @@ if args.search:
     search_space["optimizer"]["weight_decay"] = 1
     
     if model_class == "reduced_rank":
-        search_space["reduced_rank"]["temporal_rank"] = tune.randint(1, 15)
+        search_space["reduced_rank"]["temporal_rank"] = tune.grid_search(list(range(2, 30)))
         search_space["tuner"]["num_epochs"] = config.tuner.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     else:
@@ -163,7 +165,7 @@ if args.search:
         save_dir=ckpt_path,
         use_gpu=config.tuner.use_gpu, 
         max_epochs=config.tuner.num_epochs, 
-        num_samples=config.tuner.num_samples, 
+        num_samples=1, 
         num_workers=args.n_workers,
         metric=config.tuner.metric,
         mode=config.tuner.mode,
@@ -173,6 +175,8 @@ if args.search:
 
     print("Best model config:")
     print(best_config)
+
+    torch.save(best_config, ckpt_path / "best_config.pth")
 
 
 if not args.search:

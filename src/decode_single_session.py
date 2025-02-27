@@ -128,7 +128,7 @@ if args.search:
         num_timesteps = int(search_space["length"]/BINSIZE)
         search_space["optimizer"]["lr"] = 0.001 if args.target in CLASSIFICATION else 0.01
         search_space["optimizer"]["weight_decay"] = 1
-        search_space["reduced_rank"]["temporal_rank"] = tune.randint(1, 15)
+        search_space["reduced_rank"]["temporal_rank"] = tune.grid_search(list(range(2, 30)))
         search_space["tuner"]["num_epochs"] = config.tuner.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "lstm":
@@ -183,7 +183,7 @@ if args.search:
         save_dir=ckpt_path,
         use_gpu=config.tuner.use_gpu, 
         max_epochs=config.tuner.num_epochs, 
-        num_samples=config.tuner.num_samples, 
+        num_samples=1 if model_class == "reduced_rank" else config.tuner.num_samples, 
         num_workers=args.n_workers,
         metric=config.tuner.metric,
         mode=config.tuner.mode,
