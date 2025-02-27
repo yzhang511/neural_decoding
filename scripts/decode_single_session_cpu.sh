@@ -6,7 +6,7 @@
 #SBATCH --tasks-per-node=1
 #SBATCH --cpus-per-task=1        
 #SBATCH --mem 100000
-#SBATCH --time=0-1:00
+#SBATCH --time=0-2:00
 #SBATCH --export=ALL
 
 export TMPDIR=/local

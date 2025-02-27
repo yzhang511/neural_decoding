@@ -94,6 +94,21 @@ print('---------------------------------------------')
 print(f'Decode {args.target} from {len(eids)} sessions:')
 print(eids)
 
+# Filter out sessions with missing train / val / test data
+invalid_eids = [
+    fname.replace(".pkl", "") for fname in os.listdir(config.dirs.data_dir) 
+    if fname.endswith(".pkl") and not all(
+        os.path.isdir(
+            os.path.join(Path(args.base_path)/"datasets/cached", fname.replace(".pkl", ""), args.target, args.region, split)
+        )
+        for split in ["train", "val", "test"]
+    )
+]
+
+if invalid_eids:
+    print(f"Found {len(invalid_eids)} sessions with missing train or val or test data:")
+    for invalid_eid in invalid_eids:
+        print(f"- {invalid_eid}")
 
 """
 --------
