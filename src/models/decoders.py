@@ -244,6 +244,7 @@ class BaselineMultiSessionDecoder(LightningModule):
         self.output_size = config["model"]["output_size"]
         self.learning_rate = config["optimizer"]["lr"]
         self.weight_decay = config["optimizer"]["weight_decay"]
+        self.total_steps = config["training"]["total_steps"]
 
         if self.target == "reg":
             self.r2_score = R2Score(num_outputs=self.output_size, multioutput="uniform_average")
@@ -299,9 +300,15 @@ class BaselineMultiSessionDecoder(LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
-            self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay
+            self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay, eps=1e-8
         )
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, 
+            max_lr=self.learning_rate,
+            total_steps=self.total_steps,
+            pct_start=0.15,
+            div_factor=10,
+        )
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val_loss"}
 
 

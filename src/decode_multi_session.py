@@ -154,10 +154,12 @@ if args.search:
         
         dm = MultiSessionDataModule(eids, configs)
         dm.update_config()
+        dm.setup()
         
         base_config = dm.configs[0].copy()
         base_config['num_units'] = [_config['num_units'] for _config in dm.configs]
         base_config['eid_to_indx'] = {e: i for i,e in enumerate(eids)}
+        best_config["training"]["total_steps"] = best_config["training"]["num_epochs"] * len(dm.train)
 
         if model_class == "reduced_rank":
             model = MultiSessionReducedRankDecoder(base_config)
@@ -210,10 +212,12 @@ for eid in eids:
 
 dm = MultiSessionDataModule(eids, configs)
 dm.update_config()
+dm.setup()
 
 best_config = dm.configs[0].copy()
 best_config["num_units"] = [_config["num_units"] for _config in dm.configs]
 best_config["eid_to_indx"] = {e: i for i, e in enumerate(eids)}
+best_config["training"]["total_steps"] = best_config["training"]["num_epochs"] * len(dm.train)
 
 # init and train model
 if model_class == "reduced_rank":
