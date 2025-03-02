@@ -42,6 +42,7 @@ def eval_model(
                 test_y.append(y[idx].cpu())
         train_x, train_y = torch.stack(train_x), torch.stack(train_y)
         test_x, test_y = torch.stack(test_x), np.stack(test_y)
+
     elif training_type == 'single-sess':
         train_x, train_y = [], []
         for (x, y, region, eid) in train:
@@ -64,20 +65,24 @@ def eval_model(
         else:
             test_pred = model(test_x)
         if target == 'clf':
-            test_pred = softmax(test_pred, dim=1).detach().numpy().argmax(1)
+            test_prob = softmax(test_pred, dim=1).detach().numpy()
+            test_pred = test_prob.argmax(1)
         elif target == 'reg':
             test_pred = test_pred.detach().numpy()
     elif model_class == 'linear':
         train_x, test_x = train_x.numpy(), test_x.numpy()
         if target == 'clf':
             model.fit(train_x.reshape((train_x.shape[0], -1)), train_y)
+            test_prob = model.predict_proba(test_x.reshape((test_x.shape[0], -1)))
+            test_pred = test_prob.argmax(1)
         elif target == 'reg':
             model.fit(train_x.reshape((train_x.shape[0], -1)), train_y)
-        test_pred = model.predict(test_x.reshape((test_x.shape[0], -1)))
+            test_pred = model.predict(test_x.reshape((test_x.shape[0], -1)))
     elif model_class in ['mlp', 'lstm']:
         test_pred = model(test_x)
         if target == 'clf':
-            test_pred = softmax(test_pred, dim=1).detach().numpy().argmax(1)
+            test_prob = softmax(test_pred, dim=1).detach().numpy()
+            test_pred = test_prob.argmax(1)
         elif target == 'reg':
             test_pred = test_pred.detach().numpy()
     else:
@@ -91,7 +96,7 @@ def eval_model(
     else:
         raise NotImplementedError
         
-    return metric, test_pred, test_y
+    return metric, test_pred, test_y, test_prob
 
 
 # --------------------------
@@ -118,16 +123,17 @@ def eval_multi_session_model(
     """
     assert model_class=='reduced_rank', 'Other models do not support multi-session training yet. '
     
-    metric_lst, test_pred_lst, test_y_lst = [], [], []
+    metric_lst, test_pred_lst, test_y_lst, test_prob_lst = [], [], [], []
     for idx, (train, test) in enumerate(zip(train_lst, test_lst)):
-        metric, test_pred, test_y = eval_model(
+        metric, test_pred, test_y, test_prob = eval_model(
             train, test, model, target=target, 
             model_class=model_class, training_type='multi-sess',
         )
         metric_lst.append(metric)
         test_pred_lst.append(test_pred)
         test_y_lst.append(test_y)
-    return metric_lst, test_pred_lst, test_y_lst
+        test_prob_lst.append(test_prob)
+    return metric_lst, test_pred_lst, test_y_lst, test_prob_lst
 
 
 # --------------------------
@@ -158,19 +164,20 @@ def eval_multi_region_model(
     """
     assert model_class=='reduced_rank', 'Other models do not support multi-region training yet. '
     
-    metric_dict, test_pred_dict, test_y_dict = {}, {}, {}
+    metric_dict, test_pred_dict, test_y_dict, test_prob_dict = {}, {}, {}, {}
     for region in all_regions:
-        metric_dict[region], test_pred_dict[region], test_y_dict[region] = {}, {}, {}
+        metric_dict[region], test_pred_dict[region], test_y_dict[region], test_prob_dict[region] = {}, {}, {}, {}
         
     for idx, (train, test) in enumerate(zip(train_lst, test_lst)):
         eid = configs[idx]['eid']
         region = configs[idx]['region']
-        metric, test_pred, test_y = eval_model(
+        metric, test_pred, test_y, test_prob = eval_model(
             train, test, model, target=target, 
             model_class=model_class, training_type='multi-sess',
         )
         metric_dict[region][eid] = metric
         test_pred_dict[region][eid] = test_pred
         test_y_dict[region][eid] = test_y
-    return metric_dict, test_pred_dict, test_y_dict
+        test_prob_dict[region][eid] = test_prob
+    return metric_dict, test_pred_dict, test_y_dict, test_prob_dict
     

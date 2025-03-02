@@ -253,7 +253,7 @@ EVALUATION
 """
 model.eval()
 with torch.no_grad():
-    metric_lst, test_pred_lst, test_y_lst = eval_multi_session_model(
+    metric_lst, test_pred_lst, test_y_lst, test_prob_lst = eval_multi_session_model(
         train_dataset, 
         test_dataset, 
         model, 
@@ -267,7 +267,8 @@ for eid_idx, eid in enumerate(eids):
     res_dict = {
         "test_metric": metric_lst[eid_idx], 
         "test_pred": test_pred_lst[eid_idx], 
-        "test_y": test_y_lst[eid_idx]
+        "test_y": test_y_lst[eid_idx],
+        "test_prob": test_prob_lst[eid_idx],
     }
     np.save(save_path/f"{eid}.npy", res_dict)
         

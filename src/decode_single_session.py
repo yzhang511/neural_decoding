@@ -281,7 +281,7 @@ if model_class != "linear":
 else:
     dm.setup()
     train_dataset, test_dataset = dm.train, dm.test
-    metric, test_pred, test_y = eval_model(
+    metric, test_pred, test_y, test_prob = eval_model(
         train_dataset, 
         test_dataset, 
         model, 
@@ -294,6 +294,7 @@ res_dict = {
     "test_metric": metric, 
     "test_pred": test_pred, 
     "test_y": test_y,
+    "test_prob": test_prob,
 }
 np.save(save_path/f"{args.session_id}.npy", res_dict)
     

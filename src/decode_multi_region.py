@@ -162,7 +162,7 @@ trainer.test(datamodule=dm, ckpt_path='best')
 EVALUATION
 ----------
 """
-metric_dict, test_pred_dict, test_y_dict = eval_multi_region_model(
+metric_dict, test_pred_dict, test_y_dict, test_prob_dict = eval_multi_region_model(
     dm.train, dm.test, model, target=base_config['model']['target'], 
     all_regions=query_region, configs=dm.configs,
 )
@@ -174,7 +174,8 @@ for region in metric_dict.keys():
         res_dict = {
             'test_metric': metric_dict[region][eid], 
             'test_pred': test_pred_dict[region][eid], 
-            'test_y': test_y_dict[region][eid]
+            'test_y': test_y_dict[region][eid],
+            'test_prob': test_prob_dict[region][eid],
         }
         os.makedirs(save_path/region, exist_ok=True)
         np.save(save_path/region/f'{eid}.npy', res_dict)
