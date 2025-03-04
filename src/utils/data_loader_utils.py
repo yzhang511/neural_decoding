@@ -61,7 +61,7 @@ class SingleSessionDataset(Dataset):
         target, 
         device, 
         split="train", 
-        region=None,
+        region="all",
         load_local=True,
         huggingface_org="ibl-repro-ephys",
         standardize=False,
@@ -99,7 +99,6 @@ class SingleSessionDataset(Dataset):
             self.behavior = np.array(dataset[split][beh_name])
         
         self.sessions = np.array([eid] * len(self.spike_data))
-        self.n_trials, self.n_t_steps, self.n_units = self.spike_data.shape
         self.neuron_regions = np.array(dataset[split]["cluster_regions"])[0]
 
         for re_idx, re_name in enumerate(self.neuron_regions):
@@ -126,6 +125,7 @@ class SingleSessionDataset(Dataset):
             self.behavior[np.isnan(self.behavior)] = np.nanmean(self.behavior)
             print(f"{beh_name} in session {eid} contains NaNs; interpolate with trial-average.")
 
+        self.n_trials, self.n_t_steps, self.n_units = self.spike_data.shape
         self.spike_data = to_tensor(self.spike_data, device).double()
         self.behavior = to_tensor(self.behavior, device)
         self.behavior = self.behavior.long() if target == "clf" else self.behavior.double() 

@@ -18,7 +18,8 @@ python --version
 eid=${1}
 target=${2}
 method=${3}
-search=${4}
+region=${4}
+search=${5}
 
 if [ "$search" = "True" ]; then
     echo "Doing hyperparameter search"
@@ -85,6 +86,7 @@ python src/decode_single_session.py \
     --eid $eid \
     --target $target \
     --method $method \
+    --region $region \
     --base_path /burg/stats/users/yz4123/Downloads/ \
     --n_workers "$SLURM_CPUS_PER_TASK" \
     $search

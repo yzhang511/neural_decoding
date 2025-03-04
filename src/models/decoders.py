@@ -218,6 +218,7 @@ class BaselineMultiSessionDecoder(LightningModule):
         self.output_size = config['model']['output_size']
         self.learning_rate = config['optimizer']['lr']
         self.weight_decay = config['optimizer']['weight_decay']
+        self.total_steps = config["training"]["total_steps"]
 
         if self.target == "reg":
             self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput="uniform_average")
@@ -235,7 +236,6 @@ class BaselineMultiSessionDecoder(LightningModule):
             # each batch has len(batch) eids and regions but we only need one string for each entry
             # each batch consists of data from same session and region
             pred = self(x, eid[0], region[0])
-            loss[idx] = torch.nn.MSELoss()(pred, y)
             if self.target == 'reg':
                 loss[idx] = torch.nn.MSELoss()(pred, y)
             elif self.target == 'clf':
@@ -243,7 +243,7 @@ class BaselineMultiSessionDecoder(LightningModule):
             else:
                 raise NotImplementedError
         loss = torch.mean(loss)
-        self.log('loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+        self.log("loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     def validation_step(self, batch, batch_idx, print_str="val"):
@@ -263,8 +263,8 @@ class BaselineMultiSessionDecoder(LightningModule):
             else:
                 raise NotImplementedError
         loss, metric = torch.mean(loss), torch.mean(metric)
-        self.log(f"{print_str}_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
-        self.log(f"{print_str}_metric", metric, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+        self.log(f"{print_str}_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f"{print_str}_metric", metric, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     def test_step(self, batch, batch_idx):
@@ -272,9 +272,15 @@ class BaselineMultiSessionDecoder(LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
-            self.parameters(), lr = self.learning_rate, weight_decay = self.weight_decay
+            self.parameters(), lr = self.learning_rate, weight_decay = self.weight_decay, eps=1e-8
         )
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, 
+            max_lr=self.learning_rate,
+            total_steps=self.total_steps,
+            pct_start=0.15,
+            div_factor=10,
+        )
         return {'optimizer': optimizer, 'lr_scheduler': scheduler, 'monitor': 'val_loss'}
 
 

@@ -26,7 +26,6 @@ ap.add_argument(
 )
 ap.add_argument("--query_region", nargs="+", default=["PO", "LP", "DG", "CA1", "VISa"])
 ap.add_argument("--method", type=str, default="reduced_rank", choices=["reduced_rank"])
-ap.add_argument("--fold_idx", type=int, default=1)
 ap.add_argument("--num_epochs", type=int, default=2000)
 ap.add_argument("--n_workers", type=int, default=1)
 ap.add_argument("--base_path", type=str, default="EXAMPLE_PATH")
@@ -57,9 +56,9 @@ else:
 
 set_seed(config.seed)
 
-config["dirs"]["data_dir"] = Path(args.base_path)/config.dirs.data_dir/f"fold_{args.fold_idx}"
-save_path = Path(args.base_path)/config.dirs.output_dir/args.target/f'multi-region-{args.method}'/f"fold_{args.fold_idx}"
-ckpt_path = Path(args.base_path)/config.dirs.checkpoint_dir/args.target/f'multi-region-{args.method}'/f"fold_{args.fold_idx}"
+config["dirs"]["data_dir"] = Path(args.base_path)/config.dirs.data_dir
+save_path = Path(args.base_path)/config.dirs.output_dir/args.target/f'multi-region-{args.method}'
+ckpt_path = Path(args.base_path)/config.dirs.checkpoint_dir/args.target/f'multi-region-{args.method}'
 os.makedirs(save_path, exist_ok=True)
 os.makedirs(ckpt_path, exist_ok=True)
 

@@ -93,7 +93,7 @@ print(f'Launch single-session {model_class} decoder:')
 search_space = config.copy()
 search_space["eid"] = args.eid
 search_space["target"] = args.target
-search_space["region"] = args.region if args.region != "all" else None
+search_space["region"] = args.region if args.region != "all" else "all"
 search_space["model"]["output_size"] = OUTPUT_SIZE_LOOKUP[args.target]
 search_space["training"]["device"] = torch.device(
     "cuda" if np.logical_and(torch.cuda.is_available(), config.training.device == "gpu") else "cpu"
@@ -108,7 +108,7 @@ if args.search:
     if model_class == "reduced_rank":
         search_space["optimizer"]["lr"] = 0.001 if args.target in CLASSIFICATION else 0.01
         search_space["optimizer"]["weight_decay"] = 1  
-        search_space["reduced_rank"]["temporal_rank"] = tune.randint(1, 30)
+        search_space["reduced_rank"]["temporal_rank"] = tune.grid_search(list(range(2, 12)))
         search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "lstm":
@@ -162,7 +162,7 @@ if args.search:
         save_dir=ckpt_path,
         use_gpu=config.tuner.use_gpu, 
         max_epochs=config.tuner.num_epochs, 
-        num_samples=config.tuner.num_samples, 
+        num_samples=config.tuner.num_samples if model_class != "reduced_rank" else 1, 
         num_workers=args.n_workers,
         metric=config.tuner.metric,
         mode=config.tuner.mode,
@@ -172,6 +172,8 @@ if args.search:
 
     print("Best model config:")
     print(best_config)
+
+    torch.save(best_config, ckpt_path / "best_config.pth")
 
 
 if not args.search:
@@ -191,9 +193,9 @@ elif model_class == "mlp":
     model = MLPDecoder(best_config)
 elif model_class == "linear":
     if args.target in REGRESSION:
-        model = GridSearchCV(Ridge(), {"alpha": [1e-4, 1e-3, 1e-2, 1e-1, 1, 1e1]})
+        model = GridSearchCV(Ridge(), {"alpha": [1e-4, 1e-3, 1e-2, 1e-1, 1, 1e1, 1e2, 1e3, 1e4]})
     elif args.target in CLASSIFICATION:
-        model = GridSearchCV(LogisticRegression(), {"C": [1, 1e1, 1e2, 1e3, 1e4]})
+        model = GridSearchCV(LogisticRegression(), {"C": [1e-4, 1e-3, 1e-2, 1e-1, 1, 1e1, 1e2, 1e3, 1e4]})
     else:
         raise NotImplementedError
 else:

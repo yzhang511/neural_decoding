@@ -3,7 +3,7 @@ seed: 42
 dirs:
   checkpoint_dir: checkpoints  
   log_dir: train_logs  
-  data_dir: ibl_aligned/fold_5   # Change this if you want to use a different fold for cross-validation
+  data_dir: ibl_aligned  
   output_dir: results
 
 training:
@@ -11,8 +11,8 @@ training:
   batch_size: 32
 
   device: gpu
-  metric: val_loss
-  mode: min
+  metric: val_metric
+  mode: max
   enable_progress_bar: true
   load_local: true
 
@@ -38,7 +38,7 @@ optimizer:
 
 tuner:
   num_epochs: 2000     
-  num_samples: 30  # number of random models to sample from
+  num_samples: 10  # number of random models to sample from
   use_gpu: true    # false if not using ray tune on gpus
   num_workers: 1
   metric: val_metric
