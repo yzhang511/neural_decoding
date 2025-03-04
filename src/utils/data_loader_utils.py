@@ -103,9 +103,7 @@ class SingleSessionDataset(Dataset):
         self.neuron_regions = np.array(dataset[split]["cluster_regions"])[0]
 
         for re_idx, re_name in enumerate(self.neuron_regions):
-            if ("PO" in re_name) or ("PoT" in re_name) or ("POL" in re_name):
-                self.neuron_regions[re_idx] = "PO"
-            elif "DG" in re_name:
+            if "DG" in re_name:
                 self.neuron_regions[re_idx] = "DG"
             elif ("VISa" in re_name) or ("VISam" in re_name):
                 self.neuron_regions[re_idx] = "VISa"
