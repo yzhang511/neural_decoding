@@ -8,7 +8,7 @@ dirs:
 
 training:
   num_epochs: 2000
-  batch_size: 32
+  batch_size: 16
 
   device: gpu
   metric: val_metric
@@ -19,7 +19,7 @@ training:
 model: 
   model_class: DECODER   
   target: reg           
-  output_size: 100       
+  output_size: 50       
 
 data:
   dataset_class: decoding 
@@ -38,7 +38,7 @@ optimizer:
 
 tuner:
   num_epochs: 2000     
-  num_samples: 10  # number of random models to sample from
+  num_samples: 30  # number of random models to sample from
   use_gpu: true    # false if not using ray tune on gpus
   num_workers: 1
   metric: val_metric

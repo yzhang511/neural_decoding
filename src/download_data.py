@@ -5,41 +5,43 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from one.api import ONE
-from datasets import DatasetDict
+from datasets import DatasetDict, DatasetInfo
 from utils.ibl_data_utils import (
     prepare_data, 
     select_brain_regions, 
     list_brain_regions, 
     bin_spiking_data,
     bin_behaviors,
-    align_spike_behavior
+    align_data,
 )
 from utils.dataset_utils import create_dataset, upload_dataset
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--eid", type=str, default=None)
 ap.add_argument("--base_path", type=str, default="EXAMPLE_PATH")
-ap.add_argument("--fold_idx", type=int, default=5)
 ap.add_argument("--n_workers", type=int, default=1)
 args = ap.parse_args()
 
 SEED = 42
 np.random.seed(SEED)
-assert args.fold_idx > 0, "Fold idx must be from 1 to 5."
 
 one = ONE(
     base_url='https://openalyx.internationalbrainlab.org', 
-    password='international', 
-    silent=True,
-    cache_dir = args.base_path
+    password='international', silent=True, cache_dir = args.base_path
 )
-# Trial setup
+
 params = {
-    'interval_len': 2, 'binsize': 0.02, 'single_region': False,
-    'align_time': 'stimOn_times', 'time_window': (-.5, 1.5)
+    "interval_len": 2, 
+    "binsize": 0.02, 
+    "single_region": False,
+    "align_time": 'stimOn_times', 
+    "time_window": (-.5, 1.5), 
+    "fr_thresh": 0.5
 }
 
-beh_names = ['choice', 'reward', 'stimside', 'wheel-speed', 'whisker-motion-energy']
+beh_names = ['choice', 'reward', 'block', 'wheel-speed', 'whisker-motion-energy']
+
+DYNAMIC_VARS = list(filter(lambda x: x not in ["choice", "reward", "block"], beh_names))
 
 if args.eid is not None:
     include_eids = [args.eid]
@@ -49,91 +51,92 @@ else:
 
 print(f"Preprocess a total of {len(include_eids)} EIDs.")
 
-num_neurons = []
 for eid_idx, eid in enumerate(include_eids):
 
     print('==========================')
     print(f'Preprocess session {eid}:')
 
     # Load and preprocess data
-    neural_dict, behave_dict, meta_data, trials_data = prepare_data(one, eid, params, n_workers=args.n_workers)
+    neural_dict, behave_dict, meta_dict, trials_dict, _ = prepare_data(
+        one, eid, params, n_workers=args.n_workers
+    )
     regions, beryl_reg = list_brain_regions(neural_dict, **params)
    
     region_cluster_ids = select_brain_regions(neural_dict, beryl_reg, regions, **params)
-    binned_spikes, clusters_used_in_bins = bin_spiking_data(
-        region_cluster_ids, neural_dict, trials_df=trials_data['trials_df'], n_workers=args.n_workers, **params
+
+    bin_spikes, clusters_used_in_bins = bin_spiking_data(
+        region_cluster_ids, 
+        neural_dict, 
+        trials_df=trials_dict["trials_df"], 
+        n_workers=args.n_workers, 
+        **params
     )
+    print(f"Binned Spike Data: {bin_spikes.shape}")
+
+    bin_beh, beh_mask = bin_behaviors(
+        one, 
+        eid, 
+        DYNAMIC_VARS, 
+        trials_df=trials_dict["trials_df"], 
+        allow_nans=True, 
+        n_workers=args.n_workers, 
+        **params,
+    )
+
     try:
-        binned_behaviors, behavior_masks = bin_behaviors(
-            one, eid, beh_names[3:], trials_df=trials_data['trials_df'], 
-            allow_nans=True, n_workers=args.n_workers, **params
-        ) 
-        # Ensure neural and behavior data match for each trial
-        aligned_binned_spikes, aligned_binned_behaviors = align_spike_behavior(
-            binned_spikes, binned_behaviors, beh_names, trials_data['trials_mask']
+        align_bin_spikes, align_bin_beh, align_bin_lfp, _, bad_trial_idxs = align_data(
+            bin_spikes, 
+            bin_beh, 
+            None, 
+            list(bin_beh.keys()), 
+            trials_dict["trials_mask"], 
         )
     except ValueError as e:
-        print(e)
+        print(f"Skip EID {eid} due to error: {e}")
         continue
 
-    print("spike data shape: ", aligned_binned_spikes.shape)
-    num_neurons.append(aligned_binned_spikes.shape[-1])
+    if "whisker-motion-energy" not in align_bin_beh:
+        logging.info(f"Skip EID {eid} due to missing whisker data.")
+        continue
+
+    print("Spike Data Shape: ", align_bin_spikes.shape)
 
     # Partition dataset (train: 0.7 val: 0.1 test: 0.2)
-    max_num_trials = len(aligned_binned_spikes)
-    trial_idxs = np.random.choice(np.arange(max_num_trials), max_num_trials, replace=False)
-    
-    num_folds = 5
-    fold_size = len(trial_idxs) // num_folds
-    folds = [trial_idxs[i * fold_size:(i + 1) * fold_size] for i in range(num_folds)]
-     
-    for fold in range(num_folds):
+    num_trials = len(align_bin_spikes)
+    trial_idxs = np.random.choice(np.arange(num_trials), num_trials, replace=False)
+    train_idxs = trial_idxs[:int(0.7*num_trials)]
+    val_idxs = trial_idxs[int(0.7*num_trials):int(0.8*num_trials)]
+    test_idxs = trial_idxs[int(0.8*num_trials):]
 
-        if (fold+1) != args.fold_idx:
-            continue
-
-        test_idxs = folds[fold]
-
-        train_val_idxs = np.concatenate([folds[i] for i in range(num_folds) if i != fold])
-
-        num_train = int(0.875 * len(train_val_idxs))  # 70% of the total data
-        train_idxs = train_val_idxs[:num_train]
-        val_idxs = train_val_idxs[num_train:]
-
-        print(f"Fold {fold + 1}:")
-
-    if len(train_idxs) == 0 or len(val_idxs) == 0 or len(test_idxs) == 0:
-        print(f"Skip {eid} due to empty set.")
-        continue
-
-    is_cls_balance = True
     train_beh, val_beh, test_beh = {}, {}, {}
-    for beh in aligned_binned_behaviors.keys():
-        train_beh.update({beh: aligned_binned_behaviors[beh][train_idxs]})
-        val_beh.update({beh: aligned_binned_behaviors[beh][val_idxs]})
-        test_beh.update({beh: aligned_binned_behaviors[beh][test_idxs]})
-
-        if beh in ["choice", "stimside", "reward"]:
-            if any(len(np.unique(beh_data)) < 2 for beh_data in \
-                    [train_beh[beh], val_beh[beh], test_beh[beh]]):
-                is_cls_balance = False
-                break
-    
-    if not is_cls_balance:
-        print(f"Skip {eid} due to imbalanced cls distribution.")
-        continue
+    for beh in align_bin_beh.keys():
+        train_beh.update({beh: align_bin_beh[beh][train_idxs]})
+        val_beh.update({beh: align_bin_beh[beh][val_idxs]})
+        test_beh.update({beh: align_bin_beh[beh][test_idxs]})
     
     train_dataset = create_dataset(
-        aligned_binned_spikes[train_idxs], eid, params, 
-        binned_behaviors=train_beh, meta_data=meta_data
+        align_bin_spikes[train_idxs], 
+        eid, 
+        params,
+        meta_data=meta_dict,
+        binned_behaviors=train_beh, 
+        binned_lfp=None if align_bin_lfp is None else align_bin_lfp[train_idxs]
     )
     val_dataset = create_dataset(
-        aligned_binned_spikes[val_idxs], eid, params, 
-        binned_behaviors=val_beh, meta_data=meta_data
+        align_bin_spikes[val_idxs], 
+        eid, 
+        params,
+        meta_data=meta_dict,
+        binned_behaviors=val_beh, 
+        binned_lfp=None if align_bin_lfp is None else align_bin_lfp[val_idxs]
     )
     test_dataset = create_dataset(
-        aligned_binned_spikes[test_idxs], eid, params, 
-        binned_behaviors=test_beh, meta_data=meta_data
+        align_bin_spikes[test_idxs], 
+        eid, 
+        params,
+        meta_data=meta_dict,
+        binned_behaviors=test_beh, 
+        binned_lfp=None if align_bin_lfp is None else align_bin_lfp[test_idxs]
     )
 
     # Create dataset
@@ -145,11 +148,10 @@ for eid_idx, eid in enumerate(include_eids):
     print(partitioned_dataset)
 
     # Cache dataset
-    save_path = Path(args.base_path)/'ibl_aligned'/f'fold_{args.fold_idx}'
+    save_path = Path(args.base_path)/'ibl_aligned'
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     partitioned_dataset.save_to_disk(f'{save_path}/{eid}')
 
     print(f'Downloaded session {eid}.')
     print(f'Progress: {eid_idx+1} / {len(include_eids)} sessions downloaded.')
-

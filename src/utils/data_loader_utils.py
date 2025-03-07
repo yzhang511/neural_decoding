@@ -4,7 +4,7 @@ from pathlib import Path
 from sklearn import preprocessing
 from sklearn.preprocessing import OneHotEncoder
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from lightning.pytorch.utilities import CombinedLoader
 from lightning.pytorch import LightningDataModule
 import datasets
@@ -97,6 +97,9 @@ class SingleSessionDataset(Dataset):
         else:
             self.spike_data = get_binned_spikes(dataset[split])
             self.behavior = np.array(dataset[split][beh_name])
+
+        _, means, stds = standardize_spike_data(get_binned_spikes(dataset["train"]))
+        self.spike_data, _, _ = standardize_spike_data(self.spike_data, means, stds)
         
         self.sessions = np.array([eid] * len(self.spike_data))
         self.neuron_regions = np.array(dataset[split]["cluster_regions"])[0]
@@ -117,9 +120,6 @@ class SingleSessionDataset(Dataset):
         if target == "clf":
             enc = OneHotEncoder(handle_unknown="ignore")
             self.behavior = enc.fit_transform(self.behavior).toarray().argmax(axis=1)
-        # elif target == "reg":
-        #     self.scaler = preprocessing.StandardScaler().fit(self.behavior)
-        #     self.behavior = self.scaler.transform(self.behavior) 
 
         if np.isnan(self.behavior).sum() != 0:
             self.behavior[np.isnan(self.behavior)] = np.nanmean(self.behavior)
@@ -183,7 +183,7 @@ class SingleSessionDataModule(LightningDataModule):
 
     def train_dataloader(self):
         return DataLoader(self.train, batch_size=self.batch_size, shuffle=True)
-
+        
     def val_dataloader(self):
         return DataLoader(self.val, batch_size=self.batch_size, shuffle=False, drop_last=False)
 
@@ -207,6 +207,11 @@ class MultiSessionDataModule(LightningDataModule):
         self.eids = eids
         self.configs = configs
         self.batch_size = configs[0]['training']['batch_size']
+
+    def update_config(self):
+        for config in self.configs:
+            dm = SingleSessionDataModule(config)
+            dm.update_config()
 
     def setup(self, stage=None):
         """Call this function to load and preprocess data."""

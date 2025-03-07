@@ -26,7 +26,7 @@ from utils.config_utils import config_from_kwargs, update_config
 BINSIZE = 0.02
 LENGTH = 2.
 CLASSIFICATION = ["choice", "block"]
-REGRESSION = ["wheel-speed", "whisker-motion-energy", "pupil-diameter"]
+REGRESSION = ["wheel-speed", "whisker-motion-energy"]
 
 OUTPUT_SIZE_LOOKUP = {
     "choice": 2, 
@@ -81,9 +81,10 @@ model_class = args.method
 LOAD DATA
 ---------
 """
-with open('../data/ibl_session_ids.txt', 'r') as f:
+with open('/burg/stats/users/yz4123/neural_decoding/data/ibl_session_ids.txt', 'r') as f:
     eids = f.read().splitlines()  # removes newlines
-    eids = [eid.strip() for eid in eids if eid.strip()]  # remove empty lines and whitespace
+    eids = [eid.strip() for eid in eids if eid.strip()]
+
 print('---------------------------------------------')
 print(f'Decode {args.target} from {len(eids)} sessions:')
 print(eids)
@@ -128,6 +129,7 @@ if args.search:
         
         dm = MultiSessionDataModule(eids, configs)
         dm.update_config()
+        dm.setup()
         
         base_config = dm.configs[0].copy()
         base_config['n_units'] = [_config['n_units'] for _config in dm.configs]
@@ -185,6 +187,7 @@ for eid in eids:
 
 dm = MultiSessionDataModule(eids, configs)
 dm.update_config()
+dm.setup()
 
 best_config = dm.configs[0].copy()
 best_config["n_units"] = [_config["n_units"] for _config in dm.configs]
@@ -225,7 +228,7 @@ EVALUATION
 """
 model.eval()
 with torch.no_grad():
-    metric_lst, test_pred_lst, test_y_lst = eval_multi_session_model(
+    metric_lst, test_pred_lst, test_y_lst, test_prob_lst = eval_multi_session_model(
         train_dataset, 
         test_dataset, 
         model, 
@@ -240,7 +243,8 @@ for eid_idx, eid in enumerate(eids):
     res_dict = {
         "test_metric": metric_lst[eid_idx], 
         "test_pred": test_pred_lst[eid_idx], 
-        "test_y": test_y_lst[eid_idx]
+        "test_y": test_y_lst[eid_idx],
+        "test_prob": test_prob_lst[eid_idx],
     }
     np.save(save_path/f"{eid}.npy", res_dict)
         

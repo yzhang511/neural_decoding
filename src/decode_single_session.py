@@ -1,11 +1,13 @@
 """Example script for running single-session reduced-rank model with hyperparameter sweep.
 """
 import os
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+os.environ["TORCH_USE_CUDA_DSA"] = "1"
 import argparse
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import RandomizedSearchCV
 from sklearn.linear_model import Ridge, LogisticRegression
 import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -27,7 +29,7 @@ from utils.config_utils import config_from_kwargs, update_config
 BINSIZE = 0.02
 LENGTH = 2.
 CLASSIFICATION = ["choice", "block"]
-REGRESSION = ["wheel-speed", "whisker-motion-energy", "pupil-diameter"]
+REGRESSION = ["wheel-speed", "whisker-motion-energy"]
 
 OUTPUT_SIZE_LOOKUP = {
     "choice": 2, 
@@ -104,25 +106,35 @@ if args.search:
 
     search_space["optimizer"]["lr"] = tune.loguniform(1e-3, 5e-2)
     search_space["optimizer"]["weight_decay"] = tune.loguniform(0.01, 1.)
+
+    from itertools import combinations
+    def generate_mlp_hyperparams(possible_sizes=[256, 128, 64, 32, 16]):
+        hyperparams = []
+        for length in range(2, len(possible_sizes)):
+            for combo in combinations(possible_sizes, length):
+                if all(combo[i] > combo[i+1] for i in range(len(combo)-1)):
+                    hyperparams.append(f"({', '.join(map(str, combo))})")
+        return hyperparams
     
     if model_class == "reduced_rank":
-        search_space["optimizer"]["lr"] = 0.001 if args.target in CLASSIFICATION else 0.01
+        search_space["optimizer"]["lr"] = 0.01
         search_space["optimizer"]["weight_decay"] = 1  
-        search_space["reduced_rank"]["temporal_rank"] = tune.grid_search(list(range(2, 12)))
+        search_space["reduced_rank"]["temporal_rank"] = tune.grid_search(list(range(2, config.tuner.num_samples)))
         search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "lstm":
         search_space["lstm"]["lstm_n_layers"] = tune.randint(1, 3)
-        search_space["lstm"]["lstm_hidden_size"] = tune.choice([32, 64, 128])
-        search_space["lstm"]["mlp_hidden_size"] = tune.choice(["(32)", "(64)", "(128)"])
+        search_space["lstm"]["lstm_hidden_size"] = tune.choice([32, 64, 128, 256, 512])
+        search_space["lstm"]["mlp_hidden_size"] = tune.choice(
+            generate_mlp_hyperparams(possible_sizes=[256, 128, 64, 32, 16])
+        )
         search_space["lstm"]["drop_out"] = tune.uniform(0.1, 0.3)
         search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "mlp":
-        mlp_hyperparams = [
-            "(256, 128, 64, 32)", "(128, 64, 32)", "(64, 32)",
-        ]
-        search_space["mlp"]["mlp_hidden_size"] = tune.choice(mlp_hyperparams)
+        search_space["mlp"]["mlp_hidden_size"] = tune.choice(
+            generate_mlp_hyperparams(possible_sizes=[512, 256, 128, 64, 32, 16])
+        )
         search_space["mlp"]["drop_out"] = tune.uniform(0.1, 0.3)
         search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
@@ -132,6 +144,9 @@ if args.search:
     def train_func(config):
         dm = SingleSessionDataModule(config)
         dm.update_config()
+        dm.setup()
+
+        dm.config["training"]["total_steps"] = dm.config["training"]["num_epochs"] * len(dm.train)
 
         if model_class == "reduced_rank":
             model = ReducedRankDecoder(dm.config)
@@ -178,11 +193,15 @@ if args.search:
 
 if not args.search:
     best_config = search_space
+else:
+    best_config = torch.load(ckpt_path / "best_config.pth")
 
 # set up data loader
 dm = SingleSessionDataModule(best_config)
 dm.update_config()
+dm.setup()
 
+best_config["training"]["total_steps"] = best_config["training"]["num_epochs"] * len(dm.train)
 
 # init and train model
 if model_class == "reduced_rank":
@@ -192,10 +211,16 @@ elif model_class == "lstm":
 elif model_class == "mlp":
     model = MLPDecoder(best_config)
 elif model_class == "linear":
+    from scipy.stats import loguniform
+    from sklearn.linear_model import RidgeCV, LogisticRegressionCV
     if args.target in REGRESSION:
-        model = GridSearchCV(Ridge(), {"alpha": [1e-4, 1e-3, 1e-2, 1e-1, 1, 1e1, 1e2, 1e3, 1e4]})
+        model = RidgeCV(
+            alphas=[1e-4, 1e-3, 1e-2, 1e-1, 1, 1e2, 1e3, 1e4]
+        )
     elif args.target in CLASSIFICATION:
-        model = GridSearchCV(LogisticRegression(), {"C": [1e-4, 1e-3, 1e-2, 1e-1, 1, 1e1, 1e2, 1e3, 1e4]})
+        model = LogisticRegressionCV(
+            Cs=[1e-4, 1e-3, 1e-2, 1e-1, 1, 1e2, 1e3, 1e4]
+        )
     else:
         raise NotImplementedError
 else:
@@ -221,8 +246,22 @@ if model_class != "linear":
     )
 
     trainer.fit(model, datamodule=dm)
+
     train_dataset, test_dataset = dm.train, dm.test
 
+    if model_class == "reduced_rank":
+        MODEL_CLASS = ReducedRankDecoder
+    elif model_class == "lstm":
+        MODEL_CLASS = LSTMDecoder
+    elif model_class == "mlp":
+        MODEL_CLASS = MLPDecoder
+    else:
+        raise NotImplementedError
+
+    model = MODEL_CLASS.load_from_checkpoint(
+        checkpoint_callback.best_model_path,
+        config=best_config
+    )
 
 """
 ----------
@@ -232,17 +271,17 @@ EVALUATION
 if model_class != "linear":
     model.eval()
     with torch.no_grad():
-        metric, test_pred, test_y = eval_model(
+        metric, test_pred, test_y, test_prob = eval_model(
             train_dataset, 
             test_dataset, 
-            model, 
+            model.cpu(), 
             target=config["model"]["target"], 
             model_class=model_class
         )
 else:
     dm.setup()
     train_dataset, test_dataset = dm.train, dm.test
-    metric, test_pred, test_y = eval_model(
+    metric, test_pred, test_y, test_prob = eval_model(
         train_dataset, 
         test_dataset, 
         model, 
@@ -255,6 +294,7 @@ res_dict = {
     "test_metric": metric, 
     "test_pred": test_pred, 
     "test_y": test_y,
+    "test_prob": test_prob,
 }
 np.save(save_path/f'{args.eid}.npy', res_dict)
         

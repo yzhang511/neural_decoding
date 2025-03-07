@@ -1,5 +1,7 @@
 target=${1}
-region=${2}
+method=${2}
+region=${3}
+search=${4}
 
 while IFS= read -r session_id; do
     # Skip empty lines and comments
@@ -8,7 +10,7 @@ while IFS= read -r session_id; do
     fi
 
     echo "Submitting job for session $session_id"
-    sbatch decode_single_session_cpu.sh $session_id $target linear $region False
+    sbatch decode_single_session_cpu.sh $session_id $target $method $region $search
 
     sleep 1
 

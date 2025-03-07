@@ -34,11 +34,16 @@ class BaselineDecoder(LightningModule):
         self.weight_decay = config['optimizer']['weight_decay']
         self.target = config['model']['target']
         self.output_size = config['model']['output_size']
+        self.total_steps = config["training"]["total_steps"]
         
         if self.target == "reg":
-            self.r2_score = R2Score(num_outputs=self.output_size, multioutput="uniform_average")
+            self.metric = R2Score(multioutput="uniform_average")
+            self.loss = torch.nn.MSELoss(reduction="none")
         elif self.target == "clf":  
-            self.accuracy = Accuracy(task="multiclass", num_classes=self.output_size)
+            self.metric = Accuracy(task="multiclass", num_classes=self.output_size)
+            self.loss = torch.nn.CrossEntropyLoss(reduction="none")
+        else:
+            raise NotImplementedError
 
     def forward(self, x):
         pass
@@ -46,28 +51,21 @@ class BaselineDecoder(LightningModule):
     def training_step(self, batch, batch_idx):
         x, y, _, _ = batch
         pred = self(x)
-        if self.target == 'reg':
-            loss = F.mse_loss(pred, y)
-        elif self.target == 'clf':
-            loss = torch.nn.CrossEntropyLoss()(pred, y)
-        else:
-            raise NotImplementedError
+        n_examples = y.size()[0]
+        loss = self.loss(pred, y).sum() / n_examples
         self.log('loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     def validation_step(self, batch, batch_idx, print_str="val"):
         x, y, _, _ = batch
         pred = self(x)
-        if self.target == 'reg':
-            loss = F.mse_loss(pred, y)
-            self.r2_score(pred, y)
-            self.log(f"{print_str}_metric", self.r2_score, prog_bar=True, logger=True, sync_dist=True)
-        elif self.target == 'clf':
-            loss = torch.nn.CrossEntropyLoss()(pred, y)
-            self.accuracy(F.softmax(pred, dim=1).argmax(1), y)
-            self.log(f"{print_str}_metric", self.accuracy, prog_bar=True, logger=True, sync_dist=True)
-        else:
-            raise NotImplementedError
+        n_examples = y.size()[0]
+        loss = self.loss(pred, y).sum() / n_examples
+        if self.target == "reg":
+            pred = pred.flatten()
+            y = y.flatten()
+        self.metric(pred, y)
+        self.log(f"{print_str}_metric", self.metric, prog_bar=True, logger=True, sync_dist=True)
         self.log(f"{print_str}_loss", loss, prog_bar=True)
         return loss
 
@@ -76,10 +74,19 @@ class BaselineDecoder(LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
-            self.parameters(), lr = self.learning_rate, weight_decay = self.weight_decay
+            self.parameters(), 
+            lr = self.learning_rate, 
+            weight_decay = self.weight_decay, 
+            eps=1e-8
         )
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
-        return {'optimizer': optimizer, 'lr_scheduler': scheduler, 'monitor': 'val_loss'}
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, 
+            max_lr=self.learning_rate,
+            total_steps=self.total_steps,
+            pct_start=0.15,
+            div_factor=10,
+        )
+        return {'optimizer': optimizer, 'lr_scheduler': scheduler, 'monitor': 'val_metric'}
 
     
 class ReducedRankDecoder(BaselineDecoder):
@@ -300,7 +307,7 @@ class MultiSessionReducedRankDecoder(BaselineMultiSessionDecoder):
             bs: a list of intercept terms, e.g., [(output_size,), (output_size,), ...].
         """
         super().__init__(config)
-        self.temporal_rank = config['temporal_rank']
+        self.temporal_rank = config["reduced_rank"]["temporal_rank"]
         self.eid_to_indx = config['eid_to_indx']
         self.n_units = config['n_units']
 

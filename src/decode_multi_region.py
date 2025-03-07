@@ -177,7 +177,7 @@ model = MultiRegionReducedRankDecoder.load_from_checkpoint(best_model_path, conf
 EVALUATION
 ----------
 """
-metric_dict, chance_metric_dict, test_pred_dict, test_y_dict = eval_multi_region_model(
+metric_dict, test_pred_dict, test_y_dict, test_prob_dict = eval_multi_region_model(
     dm.train, dm.test, model, 
     target=base_config['model']['target'], 
     beh_name=args.target,
@@ -190,16 +190,14 @@ metric_dict, chance_metric_dict, test_pred_dict, test_y_dict = eval_multi_region
 )
 print("Decoding results for each session and region:")
 print(metric_dict)
-print("Chance-level decoding results:")
-print(chance_metric_dict)
     
 for region in metric_dict.keys():
     for eid in metric_dict[region].keys():
         res_dict = {
             'test_metric': metric_dict[region][eid], 
-            'test_chance_metric': chance_metric_dict[region][eid], 
             'test_pred': test_pred_dict[region][eid], 
-            'test_y': test_y_dict[region][eid]
+            'test_y': test_y_dict[region][eid],
+            'test_prob': test_prob_dict[region][eid],
         }
         os.makedirs(save_path/region, exist_ok=True)
         np.save(save_path/region/f'{eid}.npy', res_dict)
