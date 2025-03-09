@@ -19,7 +19,7 @@ training:
 model: 
   model_class: DECODER   
   target: reg           
-  output_size: 50       
+  output_size: 100       
 
 data:
   dataset_class: decoding 

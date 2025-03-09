@@ -110,11 +110,11 @@ search_space["training"]["device"] = torch.device(
 # set up for hyperparameter sweep
 if args.search:
 
-    search_space["optimizer"]["lr"] = 0.001 if args.target in CLASSIFICATION else 0.01
+    search_space["optimizer"]["lr"] = 0.01
     search_space["optimizer"]["weight_decay"] = 1
     
     if model_class == "reduced_rank":
-        search_space["reduced_rank"]["temporal_rank"] = tune.grid_search(list(range(2, 16)))
+        search_space["reduced_rank"]["temporal_rank"] = tune.grid_search(list(range(2, config.tuner.num_samples)))
         search_space["tuner"]["num_epochs"] = config.tuner.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     else:
@@ -177,6 +177,8 @@ if args.search:
 
 if not args.search:
     best_config = search_space
+else:
+    best_config = torch.load(ckpt_path / "best_config.pth")
 
 # set up data loader
 configs = []
@@ -218,7 +220,13 @@ trainer = Trainer(
 )
 
 trainer.fit(model, datamodule=dm)
+
 train_dataset, test_dataset = dm.train, dm.test
+
+model = MultiSessionReducedRankDecoder.load_from_checkpoint(
+    checkpoint_callback.best_model_path,
+    config=best_config
+)
 
 
 """
