@@ -84,6 +84,12 @@ for eid_idx, eid in enumerate(include_eids):
     )
 
     try:
+        bin_beh["prior"] = np.load(Path(args.base_path)/"prior_localization"/eid/"priors.npy", allow_pickle=True)
+        assert len(bin_beh["prior"]) == len(bin_spikes)
+    except:
+        bin_beh["prior"] = bin_beh["block"]
+
+    try:
         align_bin_spikes, align_bin_beh, align_bin_lfp, _, bad_trial_idxs = align_data(
             bin_spikes, 
             bin_beh, 
@@ -148,10 +154,14 @@ for eid_idx, eid in enumerate(include_eids):
     print(partitioned_dataset)
 
     # Cache dataset
-    save_path = Path(args.base_path)/'ibl_aligned'
+    save_path = Path(args.base_path)/"ibl_aligned"
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     partitioned_dataset.save_to_disk(f'{save_path}/{eid}')
+
+    np.save(save_path/eid/"train_trial_idxs.npy", train_idxs)
+    np.save(save_path/eid/"val_trial_idxs.npy", val_idxs)
+    np.save(save_path/eid/"test_trial_idxs.npy", test_idxs)
 
     print(f'Downloaded session {eid}.')
     print(f'Progress: {eid_idx+1} / {len(include_eids)} sessions downloaded.')

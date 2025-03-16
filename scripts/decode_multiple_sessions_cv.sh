@@ -10,7 +10,7 @@ while IFS= read -r session_id; do
     fi
 
     echo "Submitting job for session $session_id"
-    sbatch decode_single_session_cpu.sh $session_id $target $method $region $search
+    sbatch decode_single_session_cv.sh $session_id $target $method $region $search
 
     sleep 1
 done < "/burg/stats/users/yz4123/neural_decoding/data/region_session_ids.txt"

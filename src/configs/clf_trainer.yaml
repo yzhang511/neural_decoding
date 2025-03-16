@@ -7,7 +7,7 @@ dirs:
   output_dir: results
 
 training:
-  num_epochs: 2000
+  num_epochs: 1000
   batch_size: 16
 
   device: gpu
@@ -37,7 +37,7 @@ optimizer:
   weight_decay: 1
 
 tuner:
-  num_epochs: 2000
+  num_epochs: 1000
   num_samples: 10    # number of random models to sample from
   use_gpu: true      # false if not using ray tune on gpus
   num_workers: 1

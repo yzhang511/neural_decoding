@@ -348,8 +348,8 @@ class MultiRegionReducedRankDecoder(BaselineMultiSessionDecoder):
             bs: a list of intercept terms, e.g., [(output_size,), (output_size,), ...].
         """
         super().__init__(config)
-        self.temporal_rank = config['temporal_rank']
-        self.global_basis_rank = config['global_basis_rank']
+        self.temporal_rank = config["reduced_rank"]['temporal_rank']
+        self.global_basis_rank = config["reduced_rank"]['global_basis_rank']
         self.n_regions = config['n_regions']
         self.region_to_indx = config['region_to_indx']
         self.eid_region_to_indx = config['eid_region_to_indx']
@@ -368,7 +368,7 @@ class MultiRegionReducedRankDecoder(BaselineMultiSessionDecoder):
         idx = self.eid_region_to_indx[eid][region]
         region_idx = self.region_to_indx[region]
         self.Vs = torch.einsum("jrl,ltp->jrtp", self.A, self.B)
-        U, V = self.Us[idx], self.Vs[region_idx].squeeze()
+        U, V = self.Us[idx], self.Vs[region_idx]#.squeeze()
         W = torch.einsum("nr,rtp->ntp", U, V)        
         pred = torch.einsum('ntp,ktn->kp', W, x)
         pred += self.bs[idx]

@@ -638,6 +638,7 @@ def align_data(
         "choice", 
         "reward", 
         "block",
+        "prior",
         "wheel-speed", 
         "whisker-motion-energy",
         "body-motion-energy",

@@ -25,12 +25,12 @@ from utils.config_utils import config_from_kwargs, update_config
 
 BINSIZE = 0.02
 LENGTH = 2.
-CLASSIFICATION = ["choice", "block"]
-REGRESSION = ["wheel-speed", "whisker-motion-energy"]
+CLASSIFICATION = ["choice"]
+REGRESSION = ["wheel-speed", "whisker-motion-energy", "pupil-diameter", "prior"]
 
 OUTPUT_SIZE_LOOKUP = {
     "choice": 2, 
-    "block": 3, 
+    "prior": 1, 
     "wheel-speed": int(LENGTH/BINSIZE), 
     "whisker-motion-energy": int(LENGTH/BINSIZE),
     "pupil-diameter": int(LENGTH/BINSIZE),
@@ -43,7 +43,8 @@ USER INPUTS
 """
 ap = argparse.ArgumentParser()
 ap.add_argument("--base_path", type=str, default="./")
-ap.add_argument("--target", type=str, default="gabors", choices=REGRESSION+CLASSIFICATION)
+ap.add_argument("--repo_path", type=str, default="/burg/stats/users/yz4123/neural_decoding")
+ap.add_argument("--target", type=str, default="choice", choices=REGRESSION+CLASSIFICATION)
 ap.add_argument("--region", type=str, default="all")
 ap.add_argument("--method", type=str, default="reduced_rank", choices=["reduced_rank"])
 ap.add_argument("--search", action="store_true")
@@ -81,7 +82,7 @@ model_class = args.method
 LOAD DATA
 ---------
 """
-with open('/burg/stats/users/yz4123/neural_decoding/data/ibl_session_ids.txt', 'r') as f:
+with open(Path(args.repo_path)/'data/ibl_session_ids.txt', 'r') as f:
     eids = f.read().splitlines()  # removes newlines
     eids = [eid.strip() for eid in eids if eid.strip()]
 
@@ -101,7 +102,7 @@ print(f'Launch multi-session {model_class} decoder:')
 # set up model configs
 search_space = config.copy()
 search_space["target"] = args.target
-search_space["output_size"] = OUTPUT_SIZE_LOOKUP[args.target]
+search_space["model"]["output_size"] = OUTPUT_SIZE_LOOKUP[args.target]
 search_space["region"] = args.region if args.region != "all" else "all"
 search_space["training"]["device"] = torch.device(
     "cuda" if np.logical_and(torch.cuda.is_available(), config.training.device == "gpu") else "cpu"
@@ -194,7 +195,11 @@ dm.setup()
 best_config = dm.configs[0].copy()
 best_config["n_units"] = [_config["n_units"] for _config in dm.configs]
 best_config["eid_to_indx"] = {e: i for i, e in enumerate(eids)}
-best_config["training"]["total_steps"] = best_config["training"]["num_epochs"] * len(dm.train)
+
+num_train = 0
+for _train_loader in dm.train:
+    num_train += len(_train_loader) * best_config["training"]["batch_size"]
+best_config["training"]["total_steps"] = best_config["training"]["num_epochs"] * num_train
 
 # init and train model
 if model_class == "reduced_rank":
@@ -228,7 +233,6 @@ model = MultiSessionReducedRankDecoder.load_from_checkpoint(
     config=best_config
 )
 
-
 """
 ----------
 EVALUATION
@@ -239,7 +243,7 @@ with torch.no_grad():
     metric_lst, test_pred_lst, test_y_lst, test_prob_lst = eval_multi_session_model(
         train_dataset, 
         test_dataset, 
-        model, 
+        model.cpu(),
         target=best_config["model"]["target"], 
         configs=configs,
     )

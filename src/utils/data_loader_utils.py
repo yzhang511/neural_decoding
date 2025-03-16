@@ -183,6 +183,7 @@ class SingleSessionDataModule(LightningDataModule):
 
     def train_dataloader(self):
         return DataLoader(self.train, batch_size=self.batch_size, shuffle=True)
+        # return DataLoader(self.train, batch_size=self.batch_size, shuffle=False)
         
     def val_dataloader(self):
         return DataLoader(self.val, batch_size=self.batch_size, shuffle=False, drop_last=False)
@@ -267,6 +268,11 @@ class MultiRegionDataModule(LightningDataModule):
             self.regions_dict[eid] = unique_regions
             self.all_regions.extend(unique_regions)
         self.all_regions = list(np.unique(self.all_regions))
+
+    def update_config(self):
+        for config in self.configs:
+            dm = SingleSessionDataModule(config)
+            dm.update_config()
         
     def setup(self, stage=None):
         """Call this function to load and preprocess data."""

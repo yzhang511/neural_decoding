@@ -28,12 +28,12 @@ from utils.config_utils import config_from_kwargs, update_config
 
 BINSIZE = 0.02
 LENGTH = 2.
-CLASSIFICATION = ["choice", "block"]
-REGRESSION = ["wheel-speed", "whisker-motion-energy"]
+CLASSIFICATION = ["choice"]
+REGRESSION = ["wheel-speed", "whisker-motion-energy", "prior"]
 
 OUTPUT_SIZE_LOOKUP = {
     "choice": 2, 
-    "block": 3, 
+    "prior": 1, 
     "wheel-speed": int(LENGTH/BINSIZE), 
     "whisker-motion-energy": int(LENGTH/BINSIZE),
     "pupil-diameter": int(LENGTH/BINSIZE),

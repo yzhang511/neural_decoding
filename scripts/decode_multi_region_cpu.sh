@@ -1,24 +1,21 @@
 #!/bin/bash
 #SBATCH --account=stats             
-#SBATCH --job-name="multi_session"
-#SBATCH --output="multi_session.%j.out"
-#SBATCH --gres=gpu:1   
-#SBATCH --constraint=rtx8000
-#SBATCH -c 1       
+#SBATCH --job-name="multi_region"
+#SBATCH --output="multi_region.%j.out"
+#SBATCH --nodes=1
+#SBATCH --tasks-per-node=1
+#SBATCH --cpus-per-task=1        
 #SBATCH --mem 100000
-#SBATCH --time=0-6:00:00
+#SBATCH --time=0-10:00:00
 #SBATCH --export=ALL
 
 export TMPDIR=/local
 
 # Load env
 module load anaconda
-module load cuda11.1/toolkit
 python --version
 
 target=${1}
-region=${2}
-search=${3}
 
 if [ "$search" = "True" ]; then
     echo "Doing hyperparameter search"
@@ -46,7 +43,7 @@ if [ "$search" = "True" ]; then
     fi
 
     # Starting the Ray head node
-    port=1111
+    port=6666
     ip_head=$head_node_ip:$porti
     export ip_head
     echo "IP Head: $ip_head"
@@ -74,18 +71,17 @@ else
     search=""
 fi
 
+
 . ~/.bashrc
 echo $TMPDIR
 conda activate decoding
 
 cd ..
 
-python src/decode_multi_session.py \
+python src/decode_multi_region.py \
     --target $target \
     --method reduced_rank \
-    --region $region \
     --base_path /burg/stats/users/yz4123/Downloads/ \
-    --n_workers "$SLURM_CPUS_PER_TASK" \
-    $search
+    --n_workers "$SLURM_CPUS_PER_TASK"
 
 conda deactivate

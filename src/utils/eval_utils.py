@@ -98,7 +98,11 @@ def eval_model(
 
     # Evaluation
     if target == 'reg':
-        metric = r2_score(test_y.flatten(), test_pred.flatten())
+        if test_y.shape[-1] == 1:
+            from scipy.stats import pearsonr
+            metric = pearsonr(test_y.flatten(), test_pred.flatten())[0]
+        else:
+            metric = r2_score(test_y, test_pred)
     elif target == 'clf':
         metric = accuracy_score(test_y, test_pred)
     else:
@@ -220,7 +224,9 @@ def eval_multi_region_model(
             "load_local": load_local,
         }
         metric, test_pred, test_y, test_prob = eval_model(
-            train, test, model, 
+            train, 
+            test, 
+            model, 
             target=target, 
             model_class=model_class, 
             training_type='multi-sess',
