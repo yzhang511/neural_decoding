@@ -368,7 +368,7 @@ class MultiRegionReducedRankDecoder(BaselineMultiSessionDecoder):
         idx = self.eid_region_to_indx[eid][region]
         region_idx = self.region_to_indx[region]
         self.Vs = torch.einsum("jrl,ltp->jrtp", self.A, self.B)
-        U, V = self.Us[idx], self.Vs[region_idx]#.squeeze()
+        U, V = self.Us[idx], self.Vs[region_idx].squeeze(dim=0)
         W = torch.einsum("nr,rtp->ntp", U, V)        
         pred = torch.einsum('ntp,ktn->kp', W, x)
         pred += self.bs[idx]

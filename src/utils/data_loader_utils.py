@@ -125,6 +125,9 @@ class SingleSessionDataset(Dataset):
             self.behavior[np.isnan(self.behavior)] = np.nanmean(self.behavior)
             print(f"{beh_name} in session {eid} contains NaNs; interpolate with trial-average.")
 
+        if target == "reg" and beh_name == "prior":
+            self.behavior = self.behavior.reshape(-1,1)
+
         self.n_trials, self.n_t_steps, self.n_units = self.spike_data.shape
         self.spike_data = to_tensor(self.spike_data, device).double()
         self.behavior = to_tensor(self.behavior, device)
