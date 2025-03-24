@@ -120,6 +120,11 @@ class SingleSessionDataset(Dataset):
         if target == "clf":
             enc = OneHotEncoder(handle_unknown="ignore")
             self.behavior = enc.fit_transform(self.behavior).toarray().argmax(axis=1)
+        elif target == "reg":
+            pass
+            # train_behavior = np.array(dataset["train"][beh_name])
+            # self.scaler = preprocessing.StandardScaler().fit(train_behavior)
+            # self.behavior = self.scaler.transform(self.behavior) 
 
         if np.isnan(self.behavior).sum() != 0:
             self.behavior[np.isnan(self.behavior)] = np.nanmean(self.behavior)

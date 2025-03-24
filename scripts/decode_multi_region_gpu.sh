@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account=stats             
-#SBATCH --job-name="multi_session"
-#SBATCH --output="multi_session.%j.out"
+#SBATCH --job-name="multi_region"
+#SBATCH --output="multi_region.%j.out"
 #SBATCH --gres=gpu:1   
 #SBATCH --constraint=rtx8000
 #SBATCH -c 1       

@@ -64,6 +64,9 @@ class BaselineDecoder(LightningModule):
         if self.target == "reg":
             pred = pred.flatten()
             y = y.flatten()
+        elif self.target == "clf":
+            pred = F.softmax(pred, dim=1).argmax(1)
+            y = y.argmax(1)
         self.metric(pred, y)
         self.log(f"{print_str}_metric", self.metric, prog_bar=True, logger=True, sync_dist=True)
         self.log(f"{print_str}_loss", loss, prog_bar=True)
@@ -228,9 +231,13 @@ class BaselineMultiSessionDecoder(LightningModule):
         self.total_steps = config["training"]["total_steps"]
 
         if self.target == "reg":
-            self.r2_score = R2Score(num_outputs=self.n_t_steps, multioutput="uniform_average")
-        elif self.target == "clf":
-            self.accuracy = Accuracy(task="multiclass", num_classes=self.output_size)
+            self.metric = R2Score(multioutput="uniform_average")
+            self.loss = torch.nn.MSELoss(reduction="mean")
+        elif self.target == "clf":  
+            self.metric = Accuracy(task="multiclass", num_classes=self.output_size)
+            self.loss = torch.nn.CrossEntropyLoss(reduction="mean")
+        else:
+            raise NotImplementedError
 
     def forward(self, x):
         pass
@@ -242,13 +249,9 @@ class BaselineMultiSessionDecoder(LightningModule):
             # NOTE:
             # each batch has len(batch) eids and regions but we only need one string for each entry
             # each batch consists of data from same session and region
+            # pred = self(x, eid[0], region[0])
             pred = self(x, eid[0], region[0])
-            if self.target == 'reg':
-                loss[idx] = torch.nn.MSELoss()(pred, y)
-            elif self.target == 'clf':
-                loss[idx] = torch.nn.CrossEntropyLoss()(pred, y)
-            else:
-                raise NotImplementedError
+            loss[idx] = self.loss(pred, y)
         loss = torch.mean(loss)
         self.log("loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return loss
@@ -261,14 +264,14 @@ class BaselineMultiSessionDecoder(LightningModule):
             # each batch has len(batch) eids and regions but we only need one string for each entry
             # each batch consists of data from same session and region
             pred = self(x, eid[0], region[0])
-            if self.target == 'reg':
-                loss[idx] = torch.nn.MSELoss()(pred, y)
-                metric[idx] = self.r2_score(pred.flatten(), y.flatten())
-            elif self.target == 'clf':
-                loss = torch.nn.CrossEntropyLoss()(pred, y)
-                metric[idx] = self.accuracy(F.softmax(pred, dim=1).argmax(1), y)
-            else:
-                raise NotImplementedError
+            loss[idx] = self.loss(pred, y)
+            if self.target == "reg":
+                pred = pred.flatten()
+                y = y.flatten()
+            elif self.target == "clf":
+                pred = F.softmax(pred, dim=1).argmax(1)
+                y = y.argmax(1)
+            metric[idx] = self.metric(pred, y)
         loss, metric = torch.mean(loss), torch.mean(metric)
         self.log(f"{print_str}_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self.log(f"{print_str}_metric", metric, on_step=False, on_epoch=True, prog_bar=True, logger=True)

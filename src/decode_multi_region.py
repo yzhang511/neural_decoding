@@ -84,7 +84,8 @@ query_region = args.query_region
 LOAD DATA
 ---------
 """
-with open(Path(args.repo_path)/'data/region_session_ids.txt', 'r') as f:
+# with open(Path(args.repo_path)/'data/region_session_ids.txt', 'r') as f:
+with open(Path(args.repo_path)/'data/ibl_session_ids.txt', 'r') as f:
     eids = f.read().splitlines()  # removes newlines
     eids = [eid.strip() for eid in eids if eid.strip()]
 
@@ -114,11 +115,11 @@ search_space['training']['num_epochs'] = 2000
 search_space['tuner']['num_epochs'] = 2000
 search_space['tuner']['num_samples'] = 30
 
+search_space["optimizer"]["lr"] = 1e-3
+search_space["optimizer"]["weight_decay"] = 1
+
 # set up for hyperparameter sweep
 if args.search:
-
-    search_space["optimizer"]["lr"] = 1e-2
-    search_space["optimizer"]["weight_decay"] = 1
     
     if model_class == "reduced_rank":
         search_space["reduced_rank"]["temporal_rank"] = 2
@@ -226,8 +227,12 @@ trainer = Trainer(
     callbacks=[checkpoint_callback], 
     enable_progress_bar=best_config["training"]["enable_progress_bar"],
     check_val_every_n_epoch=1, 
-    devices=1, # Use only one GPU
-    strategy="auto",  
+    devices=1, # use only one GPU
+    strategy="auto", 
+    ############################## 
+    gradient_clip_val=1.0, 
+    gradient_clip_algorithm="norm" 
+    ############################## 
 )
 
 # set up data loader
@@ -277,6 +282,12 @@ base_config["training"]["total_steps"] = base_config["training"]["num_epochs"] *
 
 print("Index for region and session:")
 print(base_config['eid_region_to_indx'])
+
+print("Index for region:")
+print(base_config['region_to_indx'])
+
+print("N units:")
+print(base_config['n_units'])
  
 if model_class == "reduced_rank":
     model = MultiRegionReducedRankDecoder(base_config)

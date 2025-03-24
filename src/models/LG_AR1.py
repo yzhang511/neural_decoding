@@ -48,7 +48,7 @@ class LG_AR1(object):
             y = pm.Normal("obs", mu=mu+theta*x, sigma=eps, observed=d)
 
             trace = pm.sample(
-                n_samples, target_accept=0.95, tune=n_samples//10,
+                n_samples, target_accept=0.95, tune=n_samples//10, chains=1, 
                 return_inferencedata=False, compute_convergence_checks=False
             )  
 
