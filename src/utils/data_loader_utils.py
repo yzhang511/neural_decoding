@@ -65,6 +65,7 @@ class SingleSessionDataset(Dataset):
         load_local=True,
         huggingface_org="ibl-repro-ephys",
         standardize=False,
+        use_nlb=False,
     ):
         """Load and preprocess single-session datasets.
             
@@ -79,65 +80,79 @@ class SingleSessionDataset(Dataset):
             region: region name to be loaded, e.g., 'LP', 'CA1'.
             load_local: whether load cached data locally or remotely from Hugging Face. 
         """
-        if load_local:
-            dataset = datasets.load_from_disk(Path(data_dir)/eid)
-        else:
-            dataset = datasets.load_dataset(f"{huggingface_org}/{eid}_aligned", cache_dir=data_dir)
-        
-        if split == "val":
-            try:
-                # if val exists, load pre-partitioned validation set
+        if not use_nlb:
+            if load_local:
+                dataset = datasets.load_from_disk(Path(data_dir)/eid)
+            else:
+                dataset = datasets.load_dataset(f"{huggingface_org}/{eid}_aligned", cache_dir=data_dir)
+            
+            if split == "val":
+                try:
+                    # if val exists, load pre-partitioned validation set
+                    self.spike_data = get_binned_spikes(dataset[split])
+                    self.behavior = np.array(dataset[split][beh_name])
+                except:
+                    # if not, partition training data into train and val
+                    tmp = dataset[split].train_test_split(test_size=0.1, seed=seed)
+                    self.spike_data = get_binned_spikes(tmp["test"])
+                    self.behavior = np.array(tmp["test"][beh_name])
+            else:
                 self.spike_data = get_binned_spikes(dataset[split])
                 self.behavior = np.array(dataset[split][beh_name])
-            except:
-                # if not, partition training data into train and val
-                tmp = dataset[split].train_test_split(test_size=0.1, seed=seed)
-                self.spike_data = get_binned_spikes(tmp["test"])
-                self.behavior = np.array(tmp["test"][beh_name])
+
+            _, means, stds = standardize_spike_data(get_binned_spikes(dataset["train"]))
+            self.spike_data, _, _ = standardize_spike_data(self.spike_data, means, stds)
+            
+            self.sessions = np.array([eid] * len(self.spike_data))
+            self.neuron_regions = np.array(dataset[split]["cluster_regions"])[0]
+
+            for re_idx, re_name in enumerate(self.neuron_regions):
+                if "DG" in re_name:
+                    self.neuron_regions[re_idx] = "DG"
+                elif ("VISa" in re_name) or ("VISam" in re_name):
+                    self.neuron_regions[re_idx] = "VISa"
+
+            if region and region != "all":
+                neuron_idxs = np.argwhere(self.neuron_regions == region).flatten()
+                self.spike_data = self.spike_data[..., neuron_idxs]
+                self.regions = np.array([region] * len(self.spike_data))
+            else:
+                self.regions = np.array(["all"] * len(self.spike_data))
+
+            if target == "clf":
+                enc = OneHotEncoder(handle_unknown="ignore")
+                self.behavior = enc.fit_transform(self.behavior).toarray().argmax(axis=1)
+            elif target == "reg":
+                train_behavior = np.array(dataset["train"][beh_name])
+                self.scaler = preprocessing.StandardScaler().fit(train_behavior)
+                self.behavior = self.scaler.transform(self.behavior) 
+
+            if np.isnan(self.behavior).sum() != 0:
+                self.behavior[np.isnan(self.behavior)] = np.nanmean(self.behavior)
+                print(f"{beh_name} in session {eid} contains NaNs; interpolate with trial-average.")
+
+            if target == "reg" and beh_name == "prior":
+                self.behavior = self.behavior.reshape(-1,1)
+
+            self.n_trials, self.n_t_steps, self.n_units = self.spike_data.shape
+            self.spike_data = to_tensor(self.spike_data, device).double()
+            self.behavior = to_tensor(self.behavior, device)
+            self.behavior = self.behavior.long() if target == "clf" else self.behavior.double() 
+
         else:
-            self.spike_data = get_binned_spikes(dataset[split])
-            self.behavior = np.array(dataset[split][beh_name])
-
-        _, means, stds = standardize_spike_data(get_binned_spikes(dataset["train"]))
-        self.spike_data, _, _ = standardize_spike_data(self.spike_data, means, stds)
-        
-        self.sessions = np.array([eid] * len(self.spike_data))
-        self.neuron_regions = np.array(dataset[split]["cluster_regions"])[0]
-
-        for re_idx, re_name in enumerate(self.neuron_regions):
-            if "DG" in re_name:
-                self.neuron_regions[re_idx] = "DG"
-            elif ("VISa" in re_name) or ("VISam" in re_name):
-                self.neuron_regions[re_idx] = "VISa"
-
-        if region and region != "all":
-            neuron_idxs = np.argwhere(self.neuron_regions == region).flatten()
-            self.spike_data = self.spike_data[..., neuron_idxs]
-            self.regions = np.array([region] * len(self.spike_data))
-        else:
-            self.regions = np.array(["all"] * len(self.spike_data))
-
-        if target == "clf":
-            enc = OneHotEncoder(handle_unknown="ignore")
-            self.behavior = enc.fit_transform(self.behavior).toarray().argmax(axis=1)
-        elif target == "reg":
-            pass
-            # train_behavior = np.array(dataset["train"][beh_name])
-            # self.scaler = preprocessing.StandardScaler().fit(train_behavior)
-            # self.behavior = self.scaler.transform(self.behavior) 
-
-        if np.isnan(self.behavior).sum() != 0:
-            self.behavior[np.isnan(self.behavior)] = np.nanmean(self.behavior)
-            print(f"{beh_name} in session {eid} contains NaNs; interpolate with trial-average.")
-
-        if target == "reg" and beh_name == "prior":
-            self.behavior = self.behavior.reshape(-1,1)
-
-        self.n_trials, self.n_t_steps, self.n_units = self.spike_data.shape
-        self.spike_data = to_tensor(self.spike_data, device).double()
-        self.behavior = to_tensor(self.behavior, device)
-        self.behavior = self.behavior.long() if target == "clf" else self.behavior.double() 
-  
+            dataset = np.load(
+                f"/burg/stats/users/yz4123/Downloads/nlb-rtt/{split}_dataset.npy", allow_pickle=True
+            ).item()
+            self.spike_data = to_tensor(dataset["spikes"], device).double()
+            self.behavior = to_tensor(dataset["finger_vel"], device).double()
+            if beh_name == "finger_vel_dim_0":
+                self.behavior = self.behavior[...,0]
+            else:
+                self.behavior = self.behavior[...,1]
+            self.n_trials, self.n_t_steps, self.n_units = self.spike_data.shape
+            self.sessions = np.array([eid] * self.n_trials)
+            self.regions = np.array(["all"] * self.n_trials)
+            
     def __len__(self):
         return self.n_trials
 
@@ -161,11 +176,12 @@ class SingleSessionDataModule(LightningDataModule):
         self.load_local = config["training"]["load_local"]
         self.batch_size = config["training"]["batch_size"]
         self.n_workers = config["data"]["num_workers"]
+        self.use_nlb = config["data"]["use_nlb"]
 
     def update_config(self):
         self.val = SingleSessionDataset(
             self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, "val", self.region, self.load_local
+            self.device, "val", self.region, self.load_local, use_nlb=self.use_nlb
         )
         self.config.update({
             "n_units": self.val.n_units, 
@@ -178,15 +194,15 @@ class SingleSessionDataModule(LightningDataModule):
         """Call this function to load and preprocess data."""
         self.train = SingleSessionDataset(
             self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, "train", self.region, self.load_local
+            self.device, "train", self.region, self.load_local, use_nlb=self.use_nlb
         )
         self.val = SingleSessionDataset(
             self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, "val", self.region, self.load_local
+            self.device, "val", self.region, self.load_local, use_nlb=self.use_nlb
         )
         self.test = SingleSessionDataset(
             self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, "test", self.region, self.load_local
+            self.device, "test", self.region, self.load_local, use_nlb=self.use_nlb
         )
 
     def train_dataloader(self):

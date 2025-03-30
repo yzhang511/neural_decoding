@@ -19,7 +19,9 @@ def tune_decoder(
         resources_per_worker={"CPU": 1}
 
     scaling_config = ScalingConfig(
-        num_workers=num_workers, use_gpu=use_gpu, resources_per_worker=resources_per_worker
+        num_workers=num_workers, 
+        use_gpu=use_gpu, 
+        # resources_per_worker=resources_per_worker
     )
 
     # Add a progress reporter

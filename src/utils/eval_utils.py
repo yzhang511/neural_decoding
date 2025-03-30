@@ -23,6 +23,7 @@ def eval_model(
     target='reg', 
     model_class='reduced_rank', 
     training_type='single-sess', 
+    use_nlb=False,
 ):
     """Model evaluation backbone.
         
@@ -84,7 +85,7 @@ def eval_model(
             test_prob = model.predict_proba(test_x.reshape((test_x.shape[0], -1)))
             test_pred = test_prob.argmax(1)
         elif target == 'reg':
-            model.fit(train_x.reshape((train_x.shape[0], -1)), train_y)
+            model.fit(train_x.reshape((train_x.shape[0], -1)), train_y.reshape((train_y.shape[0], -1)))
             test_pred = model.predict(test_x.reshape((test_x.shape[0], -1)))
     elif model_class in ['mlp', 'lstm']:
         test_pred = model(test_x)
@@ -102,7 +103,10 @@ def eval_model(
             from scipy.stats import pearsonr
             metric = pearsonr(test_y.flatten(), test_pred.flatten())[0]
         else:
-            metric = r2_score(test_y, test_pred)
+            metric = []
+            for dim in range(test_y.shape[-1]):
+                metric.append(r2_score(test_y[..., dim].flatten(), test_pred[..., dim].flatten()))
+            metric = np.nanmean(metric)
     elif target == 'clf':
         metric = accuracy_score(test_y, test_pred)
     else:

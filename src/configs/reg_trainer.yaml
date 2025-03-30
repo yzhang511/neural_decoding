@@ -38,7 +38,7 @@ optimizer:
 
 tuner:
   num_epochs: 2000     
-  num_samples: 15  # number of random models to sample from
+  num_samples: 30  # number of random models to sample from
   use_gpu: true    # false if not using ray tune on gpus
   num_workers: 1
   metric: val_metric

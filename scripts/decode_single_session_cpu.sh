@@ -6,7 +6,7 @@
 #SBATCH --tasks-per-node=1
 #SBATCH --cpus-per-task=1        
 #SBATCH --mem 100000
-#SBATCH --time=0-2:00:00
+#SBATCH --time=1-00:00:00
 #SBATCH --export=ALL
 
 export TMPDIR=/local
@@ -20,6 +20,14 @@ target=${2}
 method=${3}
 region=${4}
 search=${5}
+use_nlb=${6}
+
+if [ "$use_nlb" = "True" ]; then
+    echo "Use NLB Data"
+    use_nlb="--use_nlb"
+else
+    use_nlb=""
+fi
 
 if [ "$search" = "True" ]; then
     echo "Doing hyperparameter search"
@@ -89,6 +97,7 @@ python src/decode_single_session.py \
     --region $region \
     --base_path /burg/stats/users/yz4123/Downloads/ \
     --n_workers "$SLURM_CPUS_PER_TASK" \
-    $search
+    $search \
+    $use_nlb
 
 conda deactivate

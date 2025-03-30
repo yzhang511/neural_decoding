@@ -29,7 +29,7 @@ from utils.config_utils import config_from_kwargs, update_config
 BINSIZE = 0.02
 LENGTH = 2.
 CLASSIFICATION = ["choice"]
-REGRESSION = ["wheel-speed", "whisker-motion-energy", "prior"]
+REGRESSION = ["wheel-speed", "whisker-motion-energy", "prior", "finger_vel_dim_0", "finger_vel_dim_1"]
 
 OUTPUT_SIZE_LOOKUP = {
     "choice": 2, 
@@ -37,6 +37,8 @@ OUTPUT_SIZE_LOOKUP = {
     "wheel-speed": int(LENGTH/BINSIZE), 
     "whisker-motion-energy": int(LENGTH/BINSIZE),
     "pupil-diameter": int(LENGTH/BINSIZE),
+    "finger_vel_dim_0": int(0.6/BINSIZE),
+    "finger_vel_dim_1": int(0.6/BINSIZE),
 }
 
 
@@ -53,6 +55,7 @@ ap.add_argument("--region", type=str, default="all")
 ap.add_argument("--method", type=str, default="linear", choices=["linear", "reduced_rank", "mlp", "lstm"])
 ap.add_argument("--n_workers", type=int, default=1)
 ap.add_argument("--search", action="store_true")
+ap.add_argument("--use_nlb", action="store_true")
 args = ap.parse_args()
 
 """
@@ -100,6 +103,7 @@ search_space["model"]["output_size"] = OUTPUT_SIZE_LOOKUP[args.target]
 search_space["training"]["device"] = torch.device(
     "cuda" if np.logical_and(torch.cuda.is_available(), config.training.device == "gpu") else "cpu"
 )
+search_space["data"]["use_nlb"] = True if args.use_nlb else False
 
 # set up for hyperparameter sweep    
 if args.search:
@@ -117,9 +121,10 @@ if args.search:
         return hyperparams
     
     if model_class == "reduced_rank":
-        search_space["optimizer"]["lr"] = 0.01
+        search_space["optimizer"]["lr"] = tune.loguniform(1e-3, 5e-2)
+        search_space["training"]["batch_size"] = tune.choice([16, 32, 64])
         search_space["optimizer"]["weight_decay"] = 1  
-        search_space["reduced_rank"]["temporal_rank"] = tune.grid_search(list(range(2, config.tuner.num_samples)))
+        search_space["reduced_rank"]["temporal_rank"] = 2 # tune.grid_search(list(range(2, config.tuner.num_samples)))
         search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "lstm":
@@ -276,7 +281,8 @@ if model_class != "linear":
             test_dataset, 
             model.cpu(), 
             target=config["model"]["target"], 
-            model_class=model_class
+            model_class=model_class,
+            use_nlb=args.use_nlb
         )
 else:
     dm.setup()
@@ -286,7 +292,8 @@ else:
         test_dataset, 
         model, 
         target=config["model"]["target"], 
-        model_class=model_class
+        model_class=model_class,
+        use_nlb=args.use_nlb
     )
 
 print(f"Decoding results for {args.eid}: ", metric)

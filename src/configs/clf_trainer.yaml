@@ -11,8 +11,8 @@ training:
   batch_size: 16
 
   device: gpu
-  metric: val_loss
-  mode: min
+  metric: val_metric
+  mode: max
   enable_progress_bar: true
   load_local: true
 
@@ -38,9 +38,9 @@ optimizer:
 
 tuner:
   num_epochs: 1000
-  num_samples: 10    # number of random models to sample from
+  num_samples: 15    # number of random models to sample from
   use_gpu: true      # false if not using ray tune on gpus
   num_workers: 1
-  metric: val_loss
-  mode: min
+  metric: val_metric
+  mode: max
   enable_progress_bar: true

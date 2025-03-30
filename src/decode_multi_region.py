@@ -84,8 +84,7 @@ query_region = args.query_region
 LOAD DATA
 ---------
 """
-# with open(Path(args.repo_path)/'data/region_session_ids.txt', 'r') as f:
-with open(Path(args.repo_path)/'data/ibl_session_ids.txt', 'r') as f:
+with open(Path(args.repo_path)/'data/region_session_ids.txt', 'r') as f:
     eids = f.read().splitlines()  # removes newlines
     eids = [eid.strip() for eid in eids if eid.strip()]
 
@@ -116,7 +115,7 @@ search_space['tuner']['num_epochs'] = 2000
 search_space['tuner']['num_samples'] = 30
 
 search_space["optimizer"]["lr"] = 1e-3
-search_space["optimizer"]["weight_decay"] = 1
+search_space["optimizer"]["weight_decay"] = 0.1
 
 # set up for hyperparameter sweep
 if args.search:
@@ -230,8 +229,8 @@ trainer = Trainer(
     devices=1, # use only one GPU
     strategy="auto", 
     ############################## 
-    gradient_clip_val=1.0, 
-    gradient_clip_algorithm="norm" 
+    # gradient_clip_val=1.0, 
+    # gradient_clip_algorithm="norm" 
     ############################## 
 )
 

@@ -6,7 +6,7 @@
 #SBATCH --constraint=rtx8000
 #SBATCH -c 1       
 #SBATCH --mem 100000
-#SBATCH --time=0-8:00:00
+#SBATCH --time=0-12:00:00
 #SBATCH --export=ALL
 
 export TMPDIR=/local
@@ -21,6 +21,15 @@ target=${2}
 method=${3}
 region=${4}
 search=${5}
+use_nlb=${6}
+
+if [ "$use_nlb" = "True" ]; then
+    echo "Use NLB Data"
+    use_nlb="--use_nlb"
+else
+    use_nlb=""
+fi
+
 
 if [ "$search" = "True" ]; then
     echo "Doing hyperparameter search"
@@ -49,7 +58,7 @@ if [ "$search" = "True" ]; then
 
     # Starting the Ray head node
     port=1111
-    ip_head=$head_node_ip:$porti
+    ip_head=$head_node_ip:$port
     export ip_head
     echo "IP Head: $ip_head"
 
@@ -89,6 +98,7 @@ python src/decode_single_session.py \
     --region $region \
     --base_path /burg/stats/users/yz4123/Downloads/ \
     --n_workers "$SLURM_CPUS_PER_TASK" \
-    $search
+    $search \
+    $use_nlb
 
 conda deactivate
