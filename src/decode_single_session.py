@@ -255,6 +255,22 @@ if model_class != "linear":
         )
 
         trainer.fit(model, datamodule=dm)
+
+        if model_class == "reduced_rank":
+            MODEL_CLASS = ReducedRankDecoder
+        elif model_class == "lstm":
+            MODEL_CLASS = LSTMDecoder
+        elif model_class == "mlp":
+            MODEL_CLASS = MLPDecoder
+        else:
+            raise NotImplementedError
+        
+        print(f"Best model saved to {checkpoint_callback.best_model_path}")
+
+        model = MODEL_CLASS.load_from_checkpoint(
+            checkpoint_callback.best_model_path,
+            config=best_config
+        )
         
     else:
         ckpt_file = [f for f in os.listdir(ckpt_path) if f.endswith(".ckpt")][0]
