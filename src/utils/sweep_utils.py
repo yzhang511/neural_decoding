@@ -20,7 +20,8 @@ def tune_decoder(
 
     scaling_config = ScalingConfig(
         num_workers=num_workers, 
-        use_gpu=use_gpu, 
+        use_gpu=False, 
+        # use_gpu=use_gpu, 
         # resources_per_worker=resources_per_worker
     )
 

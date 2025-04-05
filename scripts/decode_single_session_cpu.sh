@@ -6,13 +6,14 @@
 #SBATCH --tasks-per-node=1
 #SBATCH --cpus-per-task=1        
 #SBATCH --mem 100000
-#SBATCH --time=1-00:00:00
+#SBATCH --time=2-00:00:00
 #SBATCH --export=ALL
 
 export TMPDIR=/local
 
 # Load env
 module load anaconda
+module load cuda11.1/toolkit
 python --version
 
 eid=${1}
@@ -21,6 +22,7 @@ method=${3}
 region=${4}
 search=${5}
 use_nlb=${6}
+bin_size=${7}
 
 if [ "$use_nlb" = "True" ]; then
     echo "Use NLB Data"
@@ -28,6 +30,7 @@ if [ "$use_nlb" = "True" ]; then
 else
     use_nlb=""
 fi
+
 
 if [ "$search" = "True" ]; then
     echo "Doing hyperparameter search"
@@ -55,8 +58,8 @@ if [ "$search" = "True" ]; then
     fi
 
     # Starting the Ray head node
-    port=6666
-    ip_head=$head_node_ip:$porti
+    port="8889"
+    ip_head=$head_node_ip:$port
     export ip_head
     echo "IP Head: $ip_head"
 
@@ -83,7 +86,6 @@ else
     search=""
 fi
 
-
 . ~/.bashrc
 echo $TMPDIR
 conda activate decoding
@@ -98,6 +100,7 @@ python src/decode_single_session.py \
     --base_path /burg/stats/users/yz4123/Downloads/ \
     --n_workers "$SLURM_CPUS_PER_TASK" \
     $search \
-    $use_nlb
+    $use_nlb \
+    --bin_size $bin_size
 
 conda deactivate

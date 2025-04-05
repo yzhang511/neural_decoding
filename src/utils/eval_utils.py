@@ -24,6 +24,8 @@ def eval_model(
     model_class='reduced_rank', 
     training_type='single-sess', 
     use_nlb=False,
+    bin_size=5,
+    beh_name=None,
 ):
     """Model evaluation backbone.
         
@@ -97,21 +99,37 @@ def eval_model(
     else:
         raise NotImplementedError
 
-    # Evaluation
-    if target == 'reg':
-        if test_y.shape[-1] == 1:
-            from scipy.stats import pearsonr
-            metric = pearsonr(test_y.flatten(), test_pred.flatten())[0]
+    if not use_nlb:
+        if target == 'reg':
+            if test_y.shape[-1] == 1:
+                from scipy.stats import pearsonr
+                metric = pearsonr(test_y.flatten(), test_pred.flatten())[0]
+            else:
+                metric = []
+                for dim in range(test_y.shape[-1]):
+                    metric.append(r2_score(test_y[..., dim].flatten(), test_pred[..., dim].flatten()))
+                metric = np.nanmean(metric)
+        elif target == 'clf':
+            metric = accuracy_score(test_y, test_pred)
         else:
-            metric = []
-            for dim in range(test_y.shape[-1]):
-                metric.append(r2_score(test_y[..., dim].flatten(), test_pred[..., dim].flatten()))
-            metric = np.nanmean(metric)
-    elif target == 'clf':
-        metric = accuracy_score(test_y, test_pred)
+            raise NotImplementedError
     else:
-        raise NotImplementedError
-    
+        test_1ms = np.load("/burg/stats/users/yz4123/Downloads/nlb-rtt/test_1ms.npy", allow_pickle=True).item()
+        behavior_means = np.load(f"/burg/stats/users/yz4123/Downloads/nlb-rtt/behavior_means_{bin_size}.npy", allow_pickle=True).item()
+        dim = 0 if beh_name == "finger_vel_dim_0" else 1
+        y_test = test_1ms["finger_vel"][..., dim]
+        test_pred = test_pred.reshape((test_pred.shape[0], -1, 1))
+        test_pred = test_pred + behavior_means["test"]["finger_vel"][..., dim]
+        test_pred = np.repeat(test_pred, bin_size, axis=1).squeeze(-1)
+        metric = r2_score(y_test.flatten(), test_pred.flatten())
+        from matplotlib import pyplot as plt
+        n_bin_to_plot = 10000
+        plt.figure(figsize=(20, 3))
+        plt.plot(y_test.flatten()[:n_bin_to_plot], label="GT")
+        plt.plot(test_pred.flatten()[:n_bin_to_plot], label="Pred")
+        plt.legend()
+        plt.savefig(os.path.join("/burg/stats/users/yz4123/neural_decoding", f"pred_{beh_name}_binSize{bin_size}_{model_class}.png"))
+
     if target == 'reg':
         test_prob = None
         

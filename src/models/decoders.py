@@ -119,6 +119,36 @@ class ReducedRankDecoder(BaselineDecoder):
         return pred
 
 
+class SeanMLPDecoder(BaselineDecoder):
+    def __init__(self, config):
+        """Sean's MLP decoder.
+        """
+        super().__init__(config)
+        self.n_layers = config['mlp']['n_layers']
+        self.hidden_dim = config['mlp']['hidden_dim']
+        self.drop_out = config['mlp']['drop_out']
+        
+        self.input_layer = torch.nn.Linear(self.n_units*self.n_t_steps, self.hidden_dim)
+
+        self.hidden = torch.nn.ModuleList()
+        for l in range(self.n_layers - 1):
+            self.hidden.append(torch.nn.Linear(self.hidden_dim, self.hidden_dim))
+            self.hidden.append(torch.nn.ReLU())
+            self.hidden.append(torch.nn.Dropout(self.drop_out))
+
+        self.output_layer = torch.nn.Linear(self.hidden_dim, self.output_size)
+
+        self.double()
+
+    def forward(self, x):
+        x = x.flatten(start_dim=1)
+        x = self.input_layer(x) 
+        for layer in self.hidden:
+            x = layer(x)
+        pred = self.output_layer(x)
+        return pred
+
+
 class MLPDecoder(BaselineDecoder):
     def __init__(self, config):
         """Single-session MLP decoder.
@@ -140,6 +170,8 @@ class MLPDecoder(BaselineDecoder):
             self.hidden_lower.append(torch.nn.Dropout(self.drop_out))
         self.flat_layer = torch.nn.Linear(self.hidden_size[-1]*self.n_t_steps, self.hidden_size[0])
 
+        # self.input_layer = torch.nn.Linear(self.n_units*self.n_t_steps, self.hidden_size[0])
+
         self.hidden_upper = torch.nn.ModuleList()
         for l in range(len(self.hidden_size)-1):
             self.hidden_upper.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
@@ -149,6 +181,7 @@ class MLPDecoder(BaselineDecoder):
         self.double()
 
     def forward(self, x):
+        # x = x.flatten(start_dim=1)
         x = self.input_layer(x)
         for layer in self.hidden_lower:
             x = layer(x)

@@ -10,6 +10,8 @@ from lightning.pytorch import LightningDataModule
 import datasets
 from utils.dataset_utils import get_binned_spikes_from_sparse
 
+from scipy.ndimage import gaussian_filter1d
+
 seed = 42
 
 # ---------
@@ -66,6 +68,7 @@ class SingleSessionDataset(Dataset):
         huggingface_org="ibl-repro-ephys",
         standardize=False,
         use_nlb=False,
+        bin_size=5,
     ):
         """Load and preprocess single-session datasets.
             
@@ -123,9 +126,7 @@ class SingleSessionDataset(Dataset):
                 enc = OneHotEncoder(handle_unknown="ignore")
                 self.behavior = enc.fit_transform(self.behavior).toarray().argmax(axis=1)
             elif target == "reg":
-                train_behavior = np.array(dataset["train"][beh_name])
-                self.scaler = preprocessing.StandardScaler().fit(train_behavior)
-                self.behavior = self.scaler.transform(self.behavior) 
+                pass
 
             if np.isnan(self.behavior).sum() != 0:
                 self.behavior[np.isnan(self.behavior)] = np.nanmean(self.behavior)
@@ -141,15 +142,23 @@ class SingleSessionDataset(Dataset):
 
         else:
             dataset = np.load(
-                f"/burg/stats/users/yz4123/Downloads/nlb-rtt/{split}_dataset.npy", allow_pickle=True
+                f"/burg/stats/users/yz4123/Downloads/nlb-rtt/{split}_dataset_{bin_size}.npy", allow_pickle=True
             ).item()
-            self.spike_data = to_tensor(dataset["spikes"], device).double()
+            smooth_w = 1
+            X = dataset["spikes"].astype(np.float32)
+            X = gaussian_filter1d(X, smooth_w, axis=1)
+            self.n_trials, self.n_t_steps, self.n_units = X.shape
+            X = X.reshape((-1, self.n_units))
+            X_mu = np.mean(X, axis=0)
+            X_sigma = np.std(X, axis=0)
+            X = (X - X_mu) / X_sigma
+            self.spike_data = X.reshape(self.n_trials, self.n_t_steps, self.n_units)
+            self.spike_data = to_tensor(self.spike_data, device).double()
             self.behavior = to_tensor(dataset["finger_vel"], device).double()
             if beh_name == "finger_vel_dim_0":
                 self.behavior = self.behavior[...,0]
             else:
                 self.behavior = self.behavior[...,1]
-            self.n_trials, self.n_t_steps, self.n_units = self.spike_data.shape
             self.sessions = np.array([eid] * self.n_trials)
             self.regions = np.array(["all"] * self.n_trials)
             
@@ -177,11 +186,12 @@ class SingleSessionDataModule(LightningDataModule):
         self.batch_size = config["training"]["batch_size"]
         self.n_workers = config["data"]["num_workers"]
         self.use_nlb = config["data"]["use_nlb"]
+        self.bin_size = config["data"]["bin_size"]
 
     def update_config(self):
         self.val = SingleSessionDataset(
             self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, "val", self.region, self.load_local, use_nlb=self.use_nlb
+            self.device, "val", self.region, self.load_local, use_nlb=self.use_nlb, bin_size=self.bin_size
         )
         self.config.update({
             "n_units": self.val.n_units, 
@@ -194,15 +204,15 @@ class SingleSessionDataModule(LightningDataModule):
         """Call this function to load and preprocess data."""
         self.train = SingleSessionDataset(
             self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, "train", self.region, self.load_local, use_nlb=self.use_nlb
+            self.device, "train", self.region, self.load_local, use_nlb=self.use_nlb, bin_size=self.bin_size
         )
         self.val = SingleSessionDataset(
             self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, "val", self.region, self.load_local, use_nlb=self.use_nlb
+            self.device, "val", self.region, self.load_local, use_nlb=self.use_nlb, bin_size=self.bin_size
         )
         self.test = SingleSessionDataset(
             self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, "test", self.region, self.load_local, use_nlb=self.use_nlb
+            self.device, "test", self.region, self.load_local, use_nlb=self.use_nlb, bin_size=self.bin_size
         )
 
     def train_dataloader(self):

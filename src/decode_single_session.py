@@ -20,7 +20,7 @@ from ray.train.lightning import (
     prepare_trainer,
 )
 from utils.data_loader_utils import SingleSessionDataModule
-from models.decoders import ReducedRankDecoder, MLPDecoder, LSTMDecoder
+from models.decoders import ReducedRankDecoder, MLPDecoder, LSTMDecoder, SeanMLPDecoder
 from utils.eval_utils import eval_model
 from utils.sweep_utils import tune_decoder
 from utils.utils import set_seed
@@ -30,17 +30,6 @@ BINSIZE = 0.02
 LENGTH = 2.
 CLASSIFICATION = ["choice"]
 REGRESSION = ["wheel-speed", "whisker-motion-energy", "prior", "finger_vel_dim_0", "finger_vel_dim_1"]
-
-OUTPUT_SIZE_LOOKUP = {
-    "choice": 2, 
-    "prior": 1, 
-    "wheel-speed": int(LENGTH/BINSIZE), 
-    "whisker-motion-energy": int(LENGTH/BINSIZE),
-    "pupil-diameter": int(LENGTH/BINSIZE),
-    "finger_vel_dim_0": int(0.6/BINSIZE),
-    "finger_vel_dim_1": int(0.6/BINSIZE),
-}
-
 
 """
 -----------
@@ -56,7 +45,19 @@ ap.add_argument("--method", type=str, default="linear", choices=["linear", "redu
 ap.add_argument("--n_workers", type=int, default=1)
 ap.add_argument("--search", action="store_true")
 ap.add_argument("--use_nlb", action="store_true")
+ap.add_argument("--bin_size", type=int, default=5)
 args = ap.parse_args()
+
+OUTPUT_SIZE_LOOKUP = {
+    "choice": 2, 
+    "prior": 1, 
+    "wheel-speed": int(LENGTH/BINSIZE), 
+    "whisker-motion-energy": int(LENGTH/BINSIZE),
+    "pupil-diameter": int(LENGTH/BINSIZE),
+    "finger_vel_dim_0": int(0.6/(args.bin_size/1000)),
+    "finger_vel_dim_1": int(0.6/(args.bin_size/1000)),
+}
+
 
 """
 -------
@@ -104,12 +105,13 @@ search_space["training"]["device"] = torch.device(
     "cuda" if np.logical_and(torch.cuda.is_available(), config.training.device == "gpu") else "cpu"
 )
 search_space["data"]["use_nlb"] = True if args.use_nlb else False
+search_space["data"]["bin_size"] = args.bin_size
 
 # set up for hyperparameter sweep    
 if args.search:
 
-    search_space["optimizer"]["lr"] = tune.loguniform(1e-3, 5e-2)
-    search_space["optimizer"]["weight_decay"] = tune.loguniform(0.01, 1.)
+    search_space["optimizer"]["lr"] = tune.loguniform(1e-4, 1e-2)
+    search_space["optimizer"]["weight_decay"] = tune.loguniform(1e-3, 1.)
 
     from itertools import combinations
     def generate_mlp_hyperparams(possible_sizes=[256, 128, 64, 32, 16]):
@@ -121,10 +123,10 @@ if args.search:
         return hyperparams
     
     if model_class == "reduced_rank":
-        search_space["optimizer"]["lr"] = tune.loguniform(1e-3, 5e-2)
-        search_space["training"]["batch_size"] = tune.choice([16, 32, 64])
-        search_space["optimizer"]["weight_decay"] = 1  
-        search_space["reduced_rank"]["temporal_rank"] = 2 # tune.grid_search(list(range(2, config.tuner.num_samples)))
+        search_space["optimizer"]["lr"] = 1e-2
+        search_space["optimizer"]["weight_decay"] = 1
+        # search_space["reduced_rank"]["temporal_rank"] = tune.grid_search(list(range(2, config.tuner.num_samples)))
+        search_space["reduced_rank"]["temporal_rank"] = tune.grid_search(list(range(2,  OUTPUT_SIZE_LOOKUP[args.target]+1)))
         search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "lstm":
@@ -137,10 +139,15 @@ if args.search:
         search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     elif model_class == "mlp":
-        search_space["mlp"]["mlp_hidden_size"] = tune.choice(
-            generate_mlp_hyperparams(possible_sizes=[512, 256, 128, 64, 32, 16])
-        )
-        search_space["mlp"]["drop_out"] = tune.uniform(0.1, 0.3)
+        if not args.use_nlb:
+            search_space["mlp"]["mlp_hidden_size"] = tune.choice(
+                generate_mlp_hyperparams(possible_sizes=[512, 256, 128, 64, 32, 16])
+            )
+            search_space["mlp"]["drop_out"] = tune.uniform(0.1, 0.3)
+        else:
+            search_space["mlp"]["n_layers"] = tune.choice(list(range(1, 11)))
+            search_space["mlp"]["hidden_dim"] = tune.choice(list(range(50, 601)))
+            search_space["mlp"]["drop_out"] = tune.uniform(0.1, 0.5)
         search_space["tuner"]["num_epochs"] = config.training.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
     else:
@@ -214,14 +221,16 @@ if model_class == "reduced_rank":
 elif model_class == "lstm":
     model = LSTMDecoder(best_config)
 elif model_class == "mlp":
-    model = MLPDecoder(best_config)
+    model = MLPDecoder(best_config) if not args.use_nlb else SeanMLPDecoder(best_config)
 elif model_class == "linear":
     from scipy.stats import loguniform
-    from sklearn.linear_model import RidgeCV, LogisticRegressionCV
+    from sklearn.linear_model import RidgeCV, LogisticRegressionCV, Ridge
+    from sklearn.model_selection import GridSearchCV
     if args.target in REGRESSION:
-        model = RidgeCV(
-            alphas=[1e-4, 1e-3, 1e-2, 1e-1, 1, 1e2, 1e3, 1e4]
-        )
+        # model = RidgeCV(
+        #     alphas=[1e-4, 1e-3, 1e-2, 1e-1, 1, 1e2, 1e3, 1e4]
+        # )
+        model = GridSearchCV(Ridge(), {"alpha": np.logspace(-4, 4, 9)})
     elif args.target in CLASSIFICATION:
         model = LogisticRegressionCV(
             Cs=[1e-4, 1e-3, 1e-2, 1e-1, 1, 1e2, 1e3, 1e4]
@@ -259,7 +268,7 @@ if model_class != "linear":
     elif model_class == "lstm":
         MODEL_CLASS = LSTMDecoder
     elif model_class == "mlp":
-        MODEL_CLASS = MLPDecoder
+        MODEL_CLASS = MLPDecoder if not args.use_nlb else SeanMLPDecoder
     else:
         raise NotImplementedError
 
@@ -282,7 +291,9 @@ if model_class != "linear":
             model.cpu(), 
             target=config["model"]["target"], 
             model_class=model_class,
-            use_nlb=args.use_nlb
+            use_nlb=args.use_nlb,
+            bin_size=args.bin_size,
+            beh_name=args.target
         )
 else:
     dm.setup()
@@ -293,7 +304,9 @@ else:
         model, 
         target=config["model"]["target"], 
         model_class=model_class,
-        use_nlb=args.use_nlb
+        use_nlb=args.use_nlb,
+        bin_size=args.bin_size,
+        beh_name=args.target
     )
 
 print(f"Decoding results for {args.eid}: ", metric)
@@ -303,5 +316,7 @@ res_dict = {
     "test_y": test_y,
     "test_prob": test_prob,
 }
-np.save(save_path/f'{args.eid}.npy', res_dict)
-        
+if not args.use_nlb:
+    np.save(save_path/f'{args.eid}.npy', res_dict)
+else:
+    np.save(save_path/f'{args.eid}_binSize{args.bin_size}.npy', res_dict)

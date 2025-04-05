@@ -22,6 +22,7 @@ method=${3}
 region=${4}
 search=${5}
 use_nlb=${6}
+bin_size=${7}
 
 if [ "$use_nlb" = "True" ]; then
     echo "Use NLB Data"
@@ -57,7 +58,7 @@ if [ "$search" = "True" ]; then
     fi
 
     # Starting the Ray head node
-    port=1111
+    port="8889"
     ip_head=$head_node_ip:$port
     export ip_head
     echo "IP Head: $ip_head"
@@ -99,6 +100,7 @@ python src/decode_single_session.py \
     --base_path /burg/stats/users/yz4123/Downloads/ \
     --n_workers "$SLURM_CPUS_PER_TASK" \
     $search \
-    $use_nlb
+    $use_nlb \
+    --bin_size $bin_size
 
 conda deactivate
