@@ -17,7 +17,7 @@ from ray.train.lightning import (
     prepare_trainer,
 )
 from utils.data_loader_utils import MultiSessionDataModule
-from models.decoders import MultiSessionReducedRankDecoder
+from models.decoders import MultiSessionReducedRankDecoder, MultiSessionFullRankDecoder, MultiSessionMLPDecoder
 from utils.eval_utils import eval_multi_session_model
 from utils.sweep_utils import tune_decoder
 from utils.utils import set_seed
@@ -46,7 +46,7 @@ ap.add_argument("--base_path", type=str, default="./")
 ap.add_argument("--repo_path", type=str, default="/burg/stats/users/yz4123/neural_decoding")
 ap.add_argument("--target", type=str, default="choice", choices=REGRESSION+CLASSIFICATION)
 ap.add_argument("--region", type=str, default="all")
-ap.add_argument("--method", type=str, default="reduced_rank", choices=["reduced_rank"])
+ap.add_argument("--method", type=str, default="reduced_rank", choices=["reduced_rank", "full_rank", "mlp"])
 ap.add_argument("--search", action="store_true")
 ap.add_argument("--n_workers", type=int, default=1)
 args = ap.parse_args()
@@ -118,9 +118,16 @@ if args.search:
         search_space["reduced_rank"]["temporal_rank"] = tune.grid_search(list(range(2, config.tuner.num_samples)))
         search_space["tuner"]["num_epochs"] = config.tuner.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
+    elif model_class == "full_rank":
+        search_space["full_rank"]["temporal_rank"] = tune.grid_search(list(range(2, config.tuner.num_samples)))
+        search_space["tuner"]["num_epochs"] = config.tuner.num_epochs
+        search_space["training"]["num_epochs"] = config.training.num_epochs
+    elif model_class == "mlp":
+        search_space["mlp"]["hidden_size"] = tune.grid_search(list(range(2, config.tuner.num_samples)))
+        search_space["tuner"]["num_epochs"] = config.tuner.num_epochs
+        search_space["training"]["num_epochs"] = config.training.num_epochs
     else:
         raise NotImplementedError
-        
     def train_func(config):
         configs = []
         for eid in eids:
@@ -139,6 +146,10 @@ if args.search:
 
         if model_class == "reduced_rank":
             model = MultiSessionReducedRankDecoder(base_config)
+        elif model_class == "full_rank":
+            model = MultiSessionFullRankDecoder(base_config)
+        elif model_class == "mlp":
+            model = MultiSessionMLPDecoder(base_config)
         else:
             raise NotImplementedError
 
@@ -204,6 +215,10 @@ best_config["training"]["total_steps"] = best_config["training"]["num_epochs"] *
 # init and train model
 if model_class == "reduced_rank":
     model = MultiSessionReducedRankDecoder(best_config)
+elif model_class == "full_rank":
+    model = MultiSessionFullRankDecoder(best_config)
+elif model_class == "mlp":
+    model = MultiSessionMLPDecoder(best_config)
 else:
     raise NotImplementedError
 
@@ -228,10 +243,23 @@ trainer.fit(model, datamodule=dm)
 
 train_dataset, test_dataset = dm.train, dm.test
 
-model = MultiSessionReducedRankDecoder.load_from_checkpoint(
-    checkpoint_callback.best_model_path,
-    config=best_config
-)
+if model_class == "reduced_rank":
+    model = MultiSessionReducedRankDecoder.load_from_checkpoint(
+        checkpoint_callback.best_model_path,
+        config=best_config
+    )
+elif model_class == "full_rank":
+    model = MultiSessionFullRankDecoder.load_from_checkpoint(
+        checkpoint_callback.best_model_path,
+        config=best_config
+    )
+elif model_class == "mlp":
+    model = MultiSessionMLPDecoder.load_from_checkpoint(
+        checkpoint_callback.best_model_path,
+        config=best_config
+    )
+else:
+    raise NotImplementedError
 
 """
 ----------

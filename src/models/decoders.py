@@ -330,8 +330,46 @@ class MultiSessionReducedRankDecoder(BaselineMultiSessionDecoder):
         pred += self.bs[idx]
         return pred
     
+class MultiSessionFullRankDecoder(BaselineMultiSessionDecoder):
+    def __init__(self, config):
+        """Multi-session full rank decoder.
 
-    
+        Args:
+            config - model config that includes:
+                eid_to_indx: a dict converting eid to session index; used to track session-specific params.
+                n_units: a list of number of neurons in each session.
+
+        Params:
+            Ws: a list of full rank weight matrices, e.g., [(N1, T*D), (N2, T*D), ...], 
+                where N1 is n_units in session 1, T is n_t_steps, D is output_size.
+            bs: a list of intercept terms, e.g., [(output_size,), (output_size,), ...].
+        """
+        super().__init__(config)
+        self.eid_to_indx = config['eid_to_indx']
+        self.n_units = config['n_units']
+
+        # Create a list of weight matrices, one for each session
+        self.Ws = torch.nn.ParameterList(
+            [torch.nn.Parameter(torch.randn(n_units, self.n_t_steps * self.output_size)) 
+             for n_units in self.n_units]
+        )
+        self.bs = torch.nn.ParameterList(
+            [torch.nn.Parameter(torch.randn(self.output_size,)) for _ in self.n_units]
+        )
+        self.double()
+
+    def forward(self, x, eid, region):
+        idx = self.eid_to_indx[eid]
+        # Reshape input to (batch_size, n_units * n_t_steps)
+        x_flat = x.flatten(start_dim=1)
+        # Apply linear transformation
+        pred = torch.matmul(x_flat, self.Ws[idx])
+        # Reshape back to (batch_size, output_size)
+        pred = pred.reshape(-1, self.output_size)
+        # Add bias
+        pred += self.bs[idx]
+        return pred
+
 class MultiRegionReducedRankDecoder(BaselineMultiSessionDecoder):
     def __init__(self, config):
         """Multi-region reduced-rank decoder.
@@ -375,6 +413,64 @@ class MultiRegionReducedRankDecoder(BaselineMultiSessionDecoder):
         W = torch.einsum("nr,rtp->ntp", U, V)        
         pred = torch.einsum('ntp,ktn->kp', W, x)
         pred += self.bs[idx]
+        return pred
+        
+class MultiSessionMLPDecoder(BaselineMultiSessionDecoder):
+    def __init__(self, config):
+        """Multi-session MLP decoder.
+
+        Args:
+            config - model config that includes:
+                hidden_size: depth and size of hidden layers, e.g., (128, 64) has 2 layers with size 128 and 64.
+                drop_out: drop out ratio.
+                eid_to_indx: a dict converting eid to session index; used to track session-specific params.
+                n_units: a list of number of neurons in each session.
+
+        Params:
+            input_layers: a list of input layers, one for each session.
+            hidden_layers: a list of hidden layer modules, one for each session.
+            output_layers: a list of output layers, one for each session.
+        """
+        super().__init__(config)
+        self.hidden_size = tuple_type(config['mlp']['mlp_hidden_size'])
+        self.drop_out = config['mlp']['drop_out']
+        self.eid_to_indx = config['eid_to_indx']
+        self.n_units = config['n_units']
+
+        # Create MLP components for each session
+        self.input_layers = torch.nn.ModuleList()
+        self.hidden_layers = torch.nn.ModuleList()
+        self.output_layers = torch.nn.ModuleList()
+
+        for n_units in self.n_units:
+            # Input layer
+            self.input_layers.append(torch.nn.Linear(n_units, self.hidden_size[0]))
+            
+            # Hidden layers
+            hidden_module = torch.nn.ModuleList()
+            for l in range(len(self.hidden_size)-1):
+                hidden_module.append(torch.nn.Linear(self.hidden_size[l], self.hidden_size[l+1]))
+                hidden_module.append(torch.nn.ReLU())
+                hidden_module.append(torch.nn.Dropout(self.drop_out))
+            self.hidden_layers.append(hidden_module)
+            
+            # Output layer
+            self.output_layers.append(torch.nn.Linear(self.hidden_size[-1], self.output_size))
+        
+        self.double()
+
+    def forward(self, x, eid, region):
+        idx = self.eid_to_indx[eid]
+        
+        # Apply input layer
+        x = self.input_layers[idx](x)
+        
+        # Apply hidden layers
+        for layer in self.hidden_layers[idx]:
+            x = layer(x)
+        
+        # Apply output layer
+        pred = self.output_layers[idx](x)
         return pred
         
     
