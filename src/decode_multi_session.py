@@ -17,7 +17,7 @@ from ray.train.lightning import (
     prepare_trainer,
 )
 from utils.data_loader_utils import MultiSessionDataModule
-from models.decoders import MultiSessionReducedRankDecoder
+from models.decoders import MultiSessionReducedRankDecoder, MultiSessionFullRankDecoder, MultiSessionMLPDecoder
 from utils.eval_utils import eval_multi_session_model
 from utils.sweep_utils import tune_decoder
 from utils.utils import set_seed
@@ -46,7 +46,7 @@ ap.add_argument("--base_path", type=str, default="./")
 ap.add_argument("--repo_path", type=str, default="/burg/stats/users/yz4123/neural_decoding")
 ap.add_argument("--target", type=str, default="choice", choices=REGRESSION+CLASSIFICATION)
 ap.add_argument("--region", type=str, default="all")
-ap.add_argument("--method", type=str, default="reduced_rank", choices=["reduced_rank"])
+ap.add_argument("--method", type=str, default="reduced_rank", choices=["reduced_rank", "full_rank", "mlp"])
 ap.add_argument("--search", action="store_true")
 ap.add_argument("--n_workers", type=int, default=1)
 args = ap.parse_args()
@@ -107,17 +107,39 @@ search_space["region"] = args.region if args.region != "all" else "all"
 search_space["training"]["device"] = torch.device(
     "cuda" if np.logical_and(torch.cuda.is_available(), config.training.device == "gpu") else "cpu"
 )
+config["data"]["use_nlb"] = False
+config["data"]["bin_size"] = 20
 
 # set up for hyperparameter sweep
 if args.search:
 
-    search_space["optimizer"]["lr"] = 0.01
-    search_space["optimizer"]["weight_decay"] = 1
+    search_space["optimizer"]["lr"] = tune.loguniform(1e-3, 1e-2)
+    search_space["optimizer"]["weight_decay"] = tune.loguniform(1e-3, 1.)
+
+    from itertools import combinations
+    def generate_mlp_hyperparams(possible_sizes=[256, 128, 64, 32, 16]):
+        hyperparams = []
+        for length in range(2, len(possible_sizes)):
+            for combo in combinations(possible_sizes, length):
+                if all(combo[i] > combo[i+1] for i in range(len(combo)-1)):
+                    hyperparams.append(f"({', '.join(map(str, combo))})")
+        return hyperparams
     
     if model_class == "reduced_rank":
+        search_space["optimizer"]["lr"] = 0.01
+        search_space["optimizer"]["weight_decay"] = 1
         search_space["reduced_rank"]["temporal_rank"] = tune.grid_search(list(range(2, config.tuner.num_samples)))
         search_space["tuner"]["num_epochs"] = config.tuner.num_epochs
         search_space["training"]["num_epochs"] = config.training.num_epochs
+    elif model_class == "mlp":
+        search_space["mlp"]["mlp_hidden_size"] = tune.choice(
+            generate_mlp_hyperparams(possible_sizes=[512, 256, 128, 64, 32, 16])
+        )
+        search_space["mlp"]["drop_out"] = tune.uniform(0.1, 0.3)
+        search_space["tuner"]["num_epochs"] = config.tuner.num_epochs
+        search_space["training"]["num_epochs"] = config.training.num_epochs
+    elif model_class == "full_rank":
+        pass
     else:
         raise NotImplementedError
         
@@ -139,6 +161,10 @@ if args.search:
 
         if model_class == "reduced_rank":
             model = MultiSessionReducedRankDecoder(base_config)
+        elif model_class == "full_rank":
+            model = MultiSessionFullRankDecoder(base_config)
+        elif model_class == "mlp":
+            model = MultiSessionMLPDecoder(base_config)
         else:
             raise NotImplementedError
 
@@ -204,6 +230,10 @@ best_config["training"]["total_steps"] = best_config["training"]["num_epochs"] *
 # init and train model
 if model_class == "reduced_rank":
     model = MultiSessionReducedRankDecoder(best_config)
+elif model_class == "full_rank":
+    model = MultiSessionFullRankDecoder(best_config)
+elif model_class == "mlp":
+    model = MultiSessionMLPDecoder(best_config)
 else:
     raise NotImplementedError
 
@@ -228,7 +258,16 @@ trainer.fit(model, datamodule=dm)
 
 train_dataset, test_dataset = dm.train, dm.test
 
-model = MultiSessionReducedRankDecoder.load_from_checkpoint(
+if model_class == "reduced_rank":
+    MODEL_CLASS = MultiSessionReducedRankDecoder
+elif model_class == "full_rank":
+    MODEL_CLASS = MultiSessionFullRankDecoder
+elif model_class == "mlp":
+    MODEL_CLASS = MultiSessionMLPDecoder
+else:
+    raise NotImplementedError
+
+model = MODEL_CLASS.load_from_checkpoint(
     checkpoint_callback.best_model_path,
     config=best_config
 )

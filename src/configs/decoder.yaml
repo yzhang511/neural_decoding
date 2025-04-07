@@ -1,11 +1,11 @@
 model_class: DECODER
 
 reduced_rank:
-  temporal_rank: 30 # 2
+  temporal_rank: 2
   global_basis_rank: 2
 
 mlp:
-  mlp_hidden_size: (256, 128, 64)
+  mlp_hidden_size: (512, 256, 128, 64)
   drop_out: 0.02
   n_layers: 4
   hidden_dim: 460

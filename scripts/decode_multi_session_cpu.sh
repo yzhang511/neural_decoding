@@ -6,7 +6,7 @@
 #SBATCH --tasks-per-node=1
 #SBATCH --cpus-per-task=1        
 #SBATCH --mem 100000
-#SBATCH --time=0-1:00:00
+#SBATCH --time=2-00:00:00
 #SBATCH --export=ALL
 
 export TMPDIR=/local
@@ -17,7 +17,8 @@ python --version
 
 target=${1}
 region=${2}
-search=${3}
+method=${3}
+search=${4}
 
 if [ "$search" = "True" ]; then
     echo "Doing hyperparameter search"
@@ -82,7 +83,7 @@ cd ..
 
 python src/decode_multi_session.py \
     --target $target \
-    --method reduced_rank \
+    --method $method \
     --region $region \
     --base_path /burg/stats/users/yz4123/Downloads/ \
     --n_workers "$SLURM_CPUS_PER_TASK" \

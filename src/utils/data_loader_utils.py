@@ -124,7 +124,7 @@ class SingleSessionDataset(Dataset):
 
             if target == "clf":
                 enc = OneHotEncoder(handle_unknown="ignore")
-                self.behavior = enc.fit_transform(self.behavior).toarray().argmax(axis=1)
+                self.behavior = enc.fit_transform(self.behavior).toarray()#.argmax(axis=1)
             elif target == "reg":
                 pass
 
@@ -138,7 +138,8 @@ class SingleSessionDataset(Dataset):
             self.n_trials, self.n_t_steps, self.n_units = self.spike_data.shape
             self.spike_data = to_tensor(self.spike_data, device).double()
             self.behavior = to_tensor(self.behavior, device)
-            self.behavior = self.behavior.long() if target == "clf" else self.behavior.double() 
+            # self.behavior = self.behavior.long() if target == "clf" else self.behavior.double() 
+            self.behavior = self.behavior.double() 
 
         else:
             dataset = np.load(

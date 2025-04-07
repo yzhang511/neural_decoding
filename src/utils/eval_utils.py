@@ -110,7 +110,7 @@ def eval_model(
                     metric.append(r2_score(test_y[..., dim].flatten(), test_pred[..., dim].flatten()))
                 metric = np.nanmean(metric)
         elif target == 'clf':
-            metric = accuracy_score(test_y, test_pred)
+            metric = accuracy_score(test_y.argmax(1), test_pred)
         else:
             raise NotImplementedError
     else:
