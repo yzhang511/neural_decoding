@@ -7,8 +7,8 @@ dirs:
   output_dir: results
 
 training:
-  num_epochs: 2000
-  batch_size: 16
+  num_epochs: 600 # 2000
+  batch_size: 8
 
   device: gpu
   metric: val_metric

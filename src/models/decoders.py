@@ -345,23 +345,16 @@ class MultiSessionFullRankDecoder(BaselineMultiSessionDecoder):
         self.eid_to_indx = config['eid_to_indx']
         self.n_units = config['n_units']
 
-        # Create a list of weight matrices, one for each session
-        self.Ws = torch.nn.ParameterList(
-            [torch.nn.Parameter(torch.randn(n_units, self.n_t_steps, self.output_size)) 
-             for n_units in self.n_units]
-        )
-        self.bs = torch.nn.ParameterList(
-            [torch.nn.Parameter(torch.randn(self.output_size,)) for _ in self.n_units]
+        self.linear_layers = torch.nn.ModuleList(
+            [torch.nn.Linear(n_units * self.n_t_steps, self.output_size) 
+            for n_units in self.n_units]
         )
         self.double()
 
     def forward(self, x, eid, region):
         idx = self.eid_to_indx[eid]
-        pred = torch.einsum('ntd,ktn->kd', self.Ws[idx], x)
-        # Add bias
-        pred += self.bs[idx]
+        pred = self.linear_layers[idx](x.flatten(start_dim=1))
         return pred
-
 
 
 class MultiSessionReducedRankDecoder(BaselineMultiSessionDecoder):

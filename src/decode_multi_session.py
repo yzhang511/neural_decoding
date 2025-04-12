@@ -84,7 +84,7 @@ LOAD DATA
 """
 with open(Path(args.repo_path)/'data/ibl_session_ids.txt', 'r') as f:
     eids = f.read().splitlines()  # removes newlines
-    eids = [eid.strip() for eid in eids if eid.strip()]
+    eids = [eid.strip() for eid in eids if eid.strip()][:30]
 
 print('---------------------------------------------')
 print(f'Decode {args.target} from {len(eids)} sessions:')
