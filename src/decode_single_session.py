@@ -27,8 +27,9 @@ from utils.config import config_from_kwargs, update_config
 
 BINSIZE = 0.01
 REGRESSION = ["running_speed", "gaze", "pupil"]
-CLASSIFICATION = ["gabors", "static_gratings", "drifting_gratings"]
+CLASSIFICATION = ["gabors", "static_gratings", "drifting_gratings", "flashes"]
 LENGTH_LOOKUP = {
+    "flashes": 0.2,
     "gabors": 0.2, 
     "static_gratings": 0.2, 
     "drifting_gratings": 1., 
@@ -37,6 +38,7 @@ LENGTH_LOOKUP = {
     "pupil": 1.
 }
 OUTPUT_SIZE_LOOKUP = {
+    "flashes": 2,
     "gabors": 3, 
     "static_gratings": 6, 
     "drifting_gratings": 8, 

@@ -20,7 +20,7 @@ from lightning.pytorch.utilities import CombinedLoader
 from utils.registry import target_registry
 
 REGRESSION = ["running_speed", "gaze", "pupil"]
-CLASSIFICATION = ["gabors", "static_gratings", "drifting_gratings"]
+CLASSIFICATION = ["gabors", "static_gratings", "drifting_gratings", "flashes"]
 
 logging.basicConfig(level=logging.INFO)
 

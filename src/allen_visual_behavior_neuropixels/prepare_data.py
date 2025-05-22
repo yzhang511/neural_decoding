@@ -81,6 +81,27 @@ def extract_natural_scenes(stimulus_pres):
         "timestamps": start_times / 2.0 + end_times / 2.0,
     }
 
+
+def extract_flashes(stimulus_pres):
+    flashes_presentations = stimulus_pres[
+        (stimulus_pres["stimulus_name"] == "flashes")
+        & (stimulus_pres["orientation"] != "null")
+    ]
+
+    start_times = flashes_presentations["start_time"].values
+    end_times = flashes_presentations["stop_time"].values
+    orientation = flashes_presentations["stimulus_condition_id"].values.astype(np.float32)
+    orientation_classes = np.round(orientation % 244).astype(np.int64)
+    output_timestamps = (start_times + end_times) / 2
+
+    return {
+        "start": start_times,
+        "end": end_times,
+        "orientation": orientation_classes,  
+        "timestamps": output_timestamps, 
+    }
+
+
 def extract_gabors(stimulus_pres):
     gabors_presentations = stimulus_pres[
         np.array(stimulus_pres["stimulus_name"] == "gabors")
@@ -251,6 +272,7 @@ def extract_pupil(session):
 
     return pupil_dict
 
+
 def extract_gaze(session):
     gaze_df = session.get_screen_gaze_data(include_filtered_data=True)
 
@@ -302,6 +324,7 @@ def extract_gaze(session):
 
     return gaze_dict
 
+
 def get_stim_trial_splits(stim_dict, split_ratios=[0.7, 0.1, 0.2]):
     if stim_dict is None or len(stim_dict["timestamps"]) == 0:
         return {"train": None, "val": None, "test": None}
@@ -317,6 +340,7 @@ def get_stim_trial_splits(stim_dict, split_ratios=[0.7, 0.1, 0.2]):
     test_trials = stim_trials[valid_boundary: test_boundary - 1] 
     
     return {"train": train_trials, "val": valid_trials, "test": test_trials}
+
 
 def get_behavior_region(running_speed_dict, pupil_dict=None, gaze_dict=None):
     # extract session start and end times
@@ -334,6 +358,7 @@ def get_behavior_region(running_speed_dict, pupil_dict=None, gaze_dict=None):
         session_start < session_end
     ), "At least one of running_speed, pupil or gaze data must be present."
     return session_start, session_end
+
 
 def sample_free_behavior_splits(
     start, 
@@ -410,8 +435,9 @@ def main():
             "static_gratings": extract_static_gratings(stimulus_presentations),
             "gabors": extract_gabors(stimulus_presentations),
             "natural_scenes": extract_natural_scenes(stimulus_presentations),
+            "flashes": extract_flashes(stimulus_presentations), 
         }
-
+        
         # split each stimuli/behavior and combine them
         # using dedicated get_*_splits helpers into a dictionary
         stimuli_splits_by_key = {
@@ -425,6 +451,7 @@ def main():
             "natural_scenes": get_stim_trial_splits(
                 supervision_dict.get("natural_scenes", None)
             ),
+            "flashes": get_stim_trial_splits(supervision_dict.get("flashes", None)),
         }
 
         behavior_start, behavior_end = get_behavior_region(
