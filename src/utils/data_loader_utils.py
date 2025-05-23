@@ -69,6 +69,7 @@ class SingleSessionDataset(Dataset):
         standardize=False,
         use_nlb=False,
         bin_size=5,
+        fold_idx=0,
     ):
         """Load and preprocess single-session datasets.
             
@@ -143,11 +144,12 @@ class SingleSessionDataset(Dataset):
 
         else:
             dataset = np.load(
-                f"/burg/stats/users/yz4123/Downloads/nlb-rtt/{split}_dataset_{bin_size}.npy", allow_pickle=True
+                f"/burg/stats/users/yz4123/Downloads/nlb-rtt/xval/fold_{fold_idx}/{split}_dataset_{bin_size}.npy", 
+                allow_pickle=True
             ).item()
-            smooth_w = 1
+            # smooth_w = 1
             X = dataset["spikes"].astype(np.float32)
-            X = gaussian_filter1d(X, smooth_w, axis=1)
+            # X = gaussian_filter1d(X, smooth_w, axis=1)
             self.n_trials, self.n_t_steps, self.n_units = X.shape
             X = X.reshape((-1, self.n_units))
             X_mu = np.mean(X, axis=0)
@@ -188,11 +190,13 @@ class SingleSessionDataModule(LightningDataModule):
         self.n_workers = config["data"]["num_workers"]
         self.use_nlb = config["data"]["use_nlb"]
         self.bin_size = config["data"]["bin_size"]
+        self.fold_idx = config["data"]["fold_idx"]
 
     def update_config(self):
         self.val = SingleSessionDataset(
             self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, "val", self.region, self.load_local, use_nlb=self.use_nlb, bin_size=self.bin_size
+            self.device, "val", self.region, self.load_local, 
+            use_nlb=self.use_nlb, bin_size=self.bin_size, fold_idx=self.fold_idx
         )
         self.config.update({
             "n_units": self.val.n_units, 
@@ -205,15 +209,18 @@ class SingleSessionDataModule(LightningDataModule):
         """Call this function to load and preprocess data."""
         self.train = SingleSessionDataset(
             self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, "train", self.region, self.load_local, use_nlb=self.use_nlb, bin_size=self.bin_size
+            self.device, "train", self.region, self.load_local, 
+            use_nlb=self.use_nlb, bin_size=self.bin_size, fold_idx=self.fold_idx
         )
         self.val = SingleSessionDataset(
             self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, "val", self.region, self.load_local, use_nlb=self.use_nlb, bin_size=self.bin_size
+            self.device, "val", self.region, self.load_local, 
+            use_nlb=self.use_nlb, bin_size=self.bin_size, fold_idx=self.fold_idx
         )
         self.test = SingleSessionDataset(
             self.data_dir, self.eid, self.beh_name, self.target, 
-            self.device, "test", self.region, self.load_local, use_nlb=self.use_nlb, bin_size=self.bin_size
+            self.device, "test", self.region, self.load_local, 
+            use_nlb=self.use_nlb, bin_size=self.bin_size, fold_idx=self.fold_idx
         )
 
     def train_dataloader(self):

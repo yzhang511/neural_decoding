@@ -6,7 +6,7 @@
 #SBATCH --constraint=rtx8000
 #SBATCH -c 1       
 #SBATCH --mem 100000
-#SBATCH --time=0-12:00:00
+#SBATCH --time=0-2:00:00
 #SBATCH --export=ALL
 
 export TMPDIR=/local
@@ -23,6 +23,11 @@ region=${4}
 search=${5}
 use_nlb=${6}
 bin_size=${7}
+fold_idx=${8}
+
+echo "eid: $eid"
+echo "target: $target"
+echo "fold_idx: $fold_idx"
 
 if [ "$use_nlb" = "True" ]; then
     echo "Use NLB Data"
@@ -101,6 +106,7 @@ python src/decode_single_session.py \
     --n_workers "$SLURM_CPUS_PER_TASK" \
     $search \
     $use_nlb \
-    --bin_size $bin_size
+    --bin_size $bin_size \
+    --fold_idx $fold_idx
 
 conda deactivate

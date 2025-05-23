@@ -114,13 +114,14 @@ def eval_model(
         else:
             raise NotImplementedError
     else:
-        test_1ms = np.load("/burg/stats/users/yz4123/Downloads/nlb-rtt/test_1ms.npy", allow_pickle=True).item()
-        behavior_means = np.load(f"/burg/stats/users/yz4123/Downloads/nlb-rtt/behavior_means_{bin_size}.npy", allow_pickle=True).item()
+        # test_1ms = np.load("/burg/stats/users/yz4123/Downloads/nlb-rtt/test_1ms.npy", allow_pickle=True).item()
+        # behavior_means = np.load(f"/burg/stats/users/yz4123/Downloads/nlb-rtt/behavior_means_{bin_size}.npy", allow_pickle=True).item()
         dim = 0 if beh_name == "finger_vel_dim_0" else 1
-        y_test = test_1ms["finger_vel"][..., dim]
-        test_pred = test_pred.reshape((test_pred.shape[0], -1, 1))
-        test_pred = test_pred + behavior_means["test"]["finger_vel"][..., dim]
-        test_pred = np.repeat(test_pred, bin_size, axis=1).squeeze(-1)
+        # y_test = test_1ms["finger_vel"][..., dim]
+        # test_pred = test_pred.reshape((test_pred.shape[0], -1, 1))
+        # test_pred = test_pred + behavior_means["test"]["finger_vel"][..., dim]
+        # test_pred = np.repeat(test_pred, bin_size, axis=1).squeeze(-1)
+        y_test = test_y.copy()
         metric = r2_score(y_test.flatten(), test_pred.flatten())
         from matplotlib import pyplot as plt
         n_bin_to_plot = 10000

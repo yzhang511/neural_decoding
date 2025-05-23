@@ -46,6 +46,7 @@ ap.add_argument("--n_workers", type=int, default=1)
 ap.add_argument("--search", action="store_true")
 ap.add_argument("--use_nlb", action="store_true")
 ap.add_argument("--bin_size", type=int, default=5)
+ap.add_argument("--fold_idx", type=int, default=0)
 args = ap.parse_args()
 
 OUTPUT_SIZE_LOOKUP = {
@@ -106,6 +107,7 @@ search_space["training"]["device"] = torch.device(
 )
 search_space["data"]["use_nlb"] = True if args.use_nlb else False
 search_space["data"]["bin_size"] = args.bin_size
+search_space["data"]["fold_idx"] = args.fold_idx
 
 # set up for hyperparameter sweep    
 if args.search:
@@ -319,4 +321,4 @@ res_dict = {
 if not args.use_nlb:
     np.save(save_path/f'{args.eid}.npy', res_dict)
 else:
-    np.save(save_path/f'{args.eid}_binSize{args.bin_size}.npy', res_dict)
+    np.save(save_path/f'{args.eid}_binSize{args.bin_size}_fold{args.fold_idx}.npy', res_dict)
