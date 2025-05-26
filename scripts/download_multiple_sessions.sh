@@ -9,6 +9,6 @@ while IFS= read -r session_id; do
 
     sleep 1
 
-done < "/burg/stats/users/yz4123/neural_decoding/data/ibl_session_ids.txt"
+done < "/burg/stats/users/yz4123/neural_decoding/data/repro_ephys_release.txt"
 
 echo "All sessions have been submitted!"

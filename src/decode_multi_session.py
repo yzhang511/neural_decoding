@@ -49,6 +49,7 @@ ap.add_argument("--region", type=str, default="all")
 ap.add_argument("--method", type=str, default="reduced_rank", choices=["reduced_rank", "full_rank", "mlp"])
 ap.add_argument("--search", action="store_true")
 ap.add_argument("--n_workers", type=int, default=1)
+ap.add_argument("--n_sessions", type=int, default=1)
 args = ap.parse_args()
 
 """
@@ -70,21 +71,20 @@ else:
 set_seed(config.seed)
 
 config["dirs"]["data_dir"] = Path(args.base_path)/config.dirs.data_dir
-save_path = Path(args.base_path)/config.dirs.output_dir/"multi-session"/args.target/args.method/args.region
-ckpt_path = Path(args.base_path)/config.dirs.checkpoint_dir/"multi-session"/args.target/args.method/args.region
+save_path = Path(args.base_path)/config.dirs.output_dir/f"{args.n_sessions}-session"/args.target/args.method/args.region
+ckpt_path = Path(args.base_path)/config.dirs.checkpoint_dir/f"{args.n_sessions}-session"/args.target/args.method/args.region
 os.makedirs(save_path, exist_ok=True)
 os.makedirs(ckpt_path, exist_ok=True)
 
 model_class = args.method
-
 """
 ---------
 LOAD DATA
 ---------
 """
-with open(Path(args.repo_path)/'data/ibl_session_ids.txt', 'r') as f:
+with open(Path(args.repo_path)/'data/repro_ephys_release.txt', 'r') as f:
     eids = f.read().splitlines()  # removes newlines
-    eids = [eid.strip() for eid in eids if eid.strip()][:30]
+    eids = [eid.strip() for eid in eids if eid.strip()][:args.n_sessions]
 
 print('---------------------------------------------')
 print(f'Decode {args.target} from {len(eids)} sessions:')
@@ -109,6 +109,7 @@ search_space["training"]["device"] = torch.device(
 )
 config["data"]["use_nlb"] = False
 config["data"]["bin_size"] = 20
+config["data"]["fold_idx"] = 0
 
 # set up for hyperparameter sweep
 if args.search:

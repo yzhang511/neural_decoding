@@ -7,7 +7,7 @@ dirs:
   output_dir: results
 
 training:
-  num_epochs: 200 # 1000
+  num_epochs: 300 # 1000
   batch_size: 16
 
   device: gpu

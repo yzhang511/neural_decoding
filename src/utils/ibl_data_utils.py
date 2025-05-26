@@ -102,7 +102,7 @@ def load_trials_and_mask(
         ]
 
     if sess_loader is None:
-        sess_loader = SessionLoader(one, eid)
+        sess_loader = SessionLoader(one, eid=eid)
 
     if sess_loader.trials.empty:
         sess_loader.load_trials()
@@ -258,7 +258,7 @@ def bin_spiking_data(
 
 def load_target_behavior(one, eid, target):
     
-    sess_loader = SessionLoader(one, eid)
+    sess_loader = SessionLoader(one, eid=eid)
     
     try:
         if target == "wheel-position":

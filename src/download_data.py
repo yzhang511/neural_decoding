@@ -27,7 +27,8 @@ np.random.seed(SEED)
 
 one = ONE(
     base_url='https://openalyx.internationalbrainlab.org', 
-    password='international', silent=True, cache_dir = args.base_path
+    password='international', silent=True, 
+    cache_dir = args.base_path
 )
 
 params = {

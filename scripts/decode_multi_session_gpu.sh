@@ -20,6 +20,7 @@ target=${1}
 method=${2}
 region=${3}
 search=${4}
+n_sessions=${5}
 
 if [ "$search" = "True" ]; then
     echo "Doing hyperparameter search"
@@ -87,6 +88,7 @@ python src/decode_multi_session.py \
     --region $region \
     --base_path /burg/stats/users/yz4123/Downloads/ \
     --n_workers "$SLURM_CPUS_PER_TASK" \
-    $search
+    $search \
+    --n_sessions $n_sessions
 
 conda deactivate
