@@ -16,11 +16,11 @@ echo $TMPDIR
 conda activate decoding
 
 session_id=${1}
+partition=${2}
 
 cd ..
-python src/allen_visual_behavior_neuropixels/prepare_data.py \
+python src/allen_visual_${partition}_neuropixels/prepare_data.py \
     --session_id $session_id \
-    --data_dir /burg/stats/users/yz4123/allen/datasets/ 
+    --data_dir /burg/stats/users/yz4123/allen_visual_${partition}/datasets/ 
 
 conda deactivate
-

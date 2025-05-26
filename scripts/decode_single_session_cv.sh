@@ -18,6 +18,7 @@ python --version
 session_id=${1}
 target=${2}
 method=${3}
+partition=${4}
 
 . ~/.bashrc
 echo $TMPDIR
@@ -29,7 +30,6 @@ python src/decode_single_session_cv.py \
     --session_id $session_id \
     --target $target \
     --method $method \
-    --base_path /burg/stats/users/yz4123/allen/
+    --base_path /burg/stats/users/yz4123/allen_visual_${partition}/
 
 conda deactivate
-

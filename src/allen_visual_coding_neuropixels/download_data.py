@@ -1,5 +1,5 @@
 """Script adapted from this notebook: 
-https://allensdk.readthedocs.io/en/latest/_static/examples/nb/visual_behavior_neuropixels_data_access.html
+https://allensdk.readthedocs.io/en/latest/_static/examples/nb/ecephys_data_access.html
 """
 
 import argparse
@@ -7,7 +7,7 @@ import requests
 import os
 
 from tqdm import tqdm
-from allensdk.brain_observatory.behavior.behavior_project_cache import VisualBehaviorNeuropixelsProjectCache
+from allensdk.brain_observatory.ecephys.ecephys_project_cache import EcephysProjectCache
 
 
 def delete_directory(directory):
@@ -30,20 +30,17 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     manifest_path = os.path.join(args.output_dir, "manifest.json")
-    output_dir = "/".join(args.output_dir.split("/")[:-1])
-    print("Output directory:", output_dir)
-    cache = VisualBehaviorNeuropixelsProjectCache.from_s3_cache(cache_dir=output_dir)
-
-    ecephys_session = cache.get_ecephys_session_table()
-    ecephys_session_ids = ecephys_session.index.tolist()
-    for session_id in ecephys_session_ids:
-        print(session_id)
+    cache = EcephysProjectCache.from_warehouse(manifest=manifest_path)
 
     # download data for session
     truncated_file = True
     directory = os.path.join(args.output_dir + "/session_" + str(args.session_id))
 
     while truncated_file:
-        session = cache.get_ecephys_session(args.session_id)
-        print(session.list_data_attributes_and_methods())
-        
+        session = cache.get_session_data(args.session_id)
+        try:
+            print(session.specimen_name)
+            truncated_file = False
+        except OSError:
+            delete_directory(directory)
+            print(" Truncated spikes file, re-downloading")

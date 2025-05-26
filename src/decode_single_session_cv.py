@@ -27,19 +27,21 @@ from utils.config import config_from_kwargs, update_config
 
 BINSIZE = 0.01
 REGRESSION = ["running_speed", "gaze", "pupil"]
-CLASSIFICATION = ["gabors", "static_gratings", "drifting_gratings", "flashes"]
+CLASSIFICATION = ["gabors", "static_gratings", "drifting_gratings", "flashes", "rewards"]
 LENGTH_LOOKUP = {
     "flashes": 0.2,
     "gabors": 0.2, 
+    "rewards": 0.2,
     "static_gratings": 0.2, 
     "drifting_gratings": 1., 
     "running_speed": 1., 
     "gaze": 1., 
-    "pupil": 1.
+    "pupil": 1.,
 }
 OUTPUT_SIZE_LOOKUP = {
     "flashes": 2,
     "gabors": 3, 
+    "rewards": 2,
     "static_gratings": 6, 
     "drifting_gratings": 8, 
     "running_speed": int(1/BINSIZE), 
@@ -205,7 +207,7 @@ res_dict = {
     "all_y": all_ys_ordered,
     "all_prob": all_probs_ordered,
 }
-np.save(save_path/f'{args.eid}_cv.npy', res_dict)
+np.save(save_path/f'{args.session_id}_cv.npy', res_dict)
 
 print(f"Finished decoding for session {args.session_id}!")
     
