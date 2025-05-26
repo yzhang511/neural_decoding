@@ -55,13 +55,27 @@ def extract_spikes(session, session_id):
 
 
 def extract_rewards(session):
+    licks = session.licks
     rewards = session.rewards
 
-    output_timestamps = rewards.timestamps.values.astype(np.float32)
+    licks_timestamps = licks.timestamps.values.astype(np.float32)
+    rewards_timestamps = rewards.timestamps.values.astype(np.float32)
+    output_timestamps = np.concatenate([licks_timestamps, rewards_timestamps])
     start_times = output_timestamps - 0.1
     end_times = output_timestamps + 0.1
-    orientations = rewards.auto_rewarded.values.astype(np.float32)
-    orientation_classes = (orientations * 1.).astype(np.int64)
+    licks_values = np.zeros_like(licks_timestamps)
+    rewards_values = np.ones_like(rewards_timestamps)
+    orientations = np.concatenate([licks_values, rewards_values])
+    orientation_classes = orientations.astype(np.int64)
+
+    sort_indices = np.argsort(output_timestamps)
+    output_timestamps = output_timestamps[sort_indices]
+    start_times = start_times[sort_indices]
+    end_times = end_times[sort_indices]
+    orientation_classes = orientation_classes[sort_indices]
+
+    print(output_timestamps)
+    print(orientation_classes)
 
     return {
         "start": start_times,
