@@ -17,7 +17,6 @@ from utils.utils import set_seed
 logging.basicConfig(level=logging.INFO)
 
 def extract_spikes(session, session_id):
-
     units = session.get_units()
     spiketimes_dict = session.spike_times
 
@@ -55,37 +54,43 @@ def extract_spikes(session, session_id):
 
 
 def extract_rewards(session):
+
     licks = session.licks
-    rewards = session.rewards
-
     licks_timestamps = licks.timestamps.values.astype(np.float32)
-    rewards_timestamps = rewards.timestamps.values.astype(np.float32)
-    output_timestamps = np.concatenate([licks_timestamps, rewards_timestamps])
-    start_times = output_timestamps - 0.1
-    end_times = output_timestamps + 0.1
-    licks_values = np.zeros_like(licks_timestamps)
-    rewards_values = np.ones_like(rewards_timestamps)
-    orientations = np.concatenate([licks_values, rewards_values])
-    orientation_classes = orientations.astype(np.int64)
 
-    sort_indices = np.argsort(output_timestamps)
-    output_timestamps = output_timestamps[sort_indices]
-    start_times = start_times[sort_indices]
-    end_times = end_times[sort_indices]
-    orientation_classes = orientation_classes[sort_indices]
+    start_times, end_times, orientations = [], [], []
+    for lick in licks_timestamps:
+        # 1. Orientation 1 interval: [lick - 0.1, lick + 0.1]
+        start_times.append(round(lick - 0.1, 2))
+        end_times.append(round(lick + 0.1, 2))
+        orientations.append(1)
+
+        # 2. Orientation 0 intervals from [lick + 0.01, lick + 0.21) in steps of 0.2
+        start = round(lick + 0.01, 2)
+        while start + 0.2 <= lick + 0.21:
+            start_times.append(round(start, 2))
+            end_times.append(round(start + 0.2, 2))
+            orientations.append(0)
+            start = round(start + 0.2, 2)
+
+    orientations = np.array(orientations, dtype=np.int32)
+    start_times = np.array(start_times, dtype=np.float32)
+    end_times = np.array(end_times, dtype=np.float32)
+    output_timestamps = (
+        start_times + (end_times - start_times) / 2
+    )
 
     print(output_timestamps)
-    print(orientation_classes)
+    print(orientations)
 
     return {
         "start": start_times,
         "end": end_times,
-        "orientation": orientation_classes,  # (N,)
+        "orientation": orientations,  # (N,)
         "timestamps": output_timestamps,  # (N,)
     }
 
 def extract_running_speed(session):
-
     running_speed_dict = {}
     running_speed_df = session.running_speed
     if running_speed_df is not None:

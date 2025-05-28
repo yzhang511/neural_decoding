@@ -249,9 +249,15 @@ class BaseDataset(Dataset):
             )
 
             # Filter out invalid trials
-            spike_count = spike_count[valid_mask]
-            self.start = start[valid_mask]
-            self.end = end[valid_mask]
+            try:
+                spike_count = spike_count[valid_mask]
+                self.start = start[valid_mask]
+                self.end = end[valid_mask]
+            except:
+                valid_mask = valid_mask[:len(spike_count)]
+                spike_count = spike_count[valid_mask]
+                self.start = start[valid_mask]
+                self.end = end[valid_mask]
 
             np.save(f"{cached_dir}/spike_count.npy", spike_count)
             np.save(f"{cached_dir}/behavior.npy", behavior)
