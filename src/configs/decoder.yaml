@@ -1,7 +1,7 @@
 model_class: DECODER
 
 reduced_rank:
-  temporal_rank: 2
+  temporal_rank: 100
   global_basis_rank: 2
 
 mlp:
