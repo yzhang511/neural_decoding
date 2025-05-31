@@ -172,6 +172,8 @@ all_preds_ordered = np.zeros_like(all_y)
 all_probs_ordered = np.zeros((len(all_y), OUTPUT_SIZE_LOOKUP[target])) if target in CLASSIFICATION else None
 all_ys_ordered = np.zeros_like(all_y)
 
+all_x, all_y = all_x[:1000], all_y[:1000]
+
 # Perform 5-fold CV
 for fold, (train_idx, test_idx) in enumerate(kf.split(all_x)):
     

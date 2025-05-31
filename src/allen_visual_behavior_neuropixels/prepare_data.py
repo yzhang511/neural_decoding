@@ -16,14 +16,23 @@ from utils.utils import set_seed
 
 logging.basicConfig(level=logging.INFO)
 
+
 def extract_spikes(session, session_id):
+
     units = session.get_units()
     spiketimes_dict = session.spike_times
+    chan_ids = session.get_units().peak_channel_id.values
+
+    chan_index = session.get_channels().index.values
+    chan_region = session.get_channels().structure_acronym.values
+    region_dict = dict(zip(chan_index, chan_region))
+
+    region_index = [region_dict[chan_id] for chan_id in chan_ids]
+    print(set(region_index))
 
     spikes = []
     unit_index = []
     unit_meta = []
-
     for i, unit_id in enumerate(spiketimes_dict.keys()):
         metadata = units.loc[unit_id]
         unit_name = f"{session_id}/{unit_id}"
@@ -48,30 +57,31 @@ def extract_spikes(session, session_id):
     units = {
         "unit_index": unit_index, 
         "unit_meta_df": unit_meta_df,
+        "region_index": region_index,
     }
 
     return spikes, units
 
 
-def extract_rewards(session):
+def extract_rewards(session, delta=1.):
 
     licks = session.licks
     licks_timestamps = licks.timestamps.values.astype(np.float32)
 
     start_times, end_times, orientations = [], [], []
     for lick in licks_timestamps:
-        # 1. Orientation 1 interval: [lick - 0.1, lick + 0.1]
-        start_times.append(round(lick - 0.1, 2))
-        end_times.append(round(lick + 0.1, 2))
+        # 1. Orientation 1 interval: [lick - delta, lick + delta]
+        start_times.append(round(lick - delta, 2))
+        end_times.append(round(lick + delta, 2))
         orientations.append(1)
 
-        # 2. Orientation 0 intervals from [lick + 0.01, lick + 0.21) in steps of 0.2
+        # 2. Orientation 0 intervals from [lick + 0.01, lick + delta + 0.01) in steps of delta
         start = round(lick + 0.01, 2)
-        while start + 0.2 <= lick + 0.21:
+        while start + 1. <= lick + delta + 0.01:
             start_times.append(round(start, 2))
-            end_times.append(round(start + 0.2, 2))
+            end_times.append(round(start + delta, 2))
             orientations.append(0)
-            start = round(start + 0.2, 2)
+            start = round(start + delta, 2)
 
     orientations = np.array(orientations, dtype=np.int32)
     start_times = np.array(start_times, dtype=np.float32)

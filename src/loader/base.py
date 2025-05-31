@@ -248,6 +248,17 @@ class BaseDataset(Dataset):
                 n_workers=n_workers
             )
 
+            print("Spike count shape before filtering:", spike_count.shape)
+
+            region_index = np.array(session_dict["data"]["units"]["region_index"]) 
+            if "CA1" in set(region_index):
+                selected_region = region_index == "CA1"
+            else:
+                selected_region = region_index == "CA3"
+            spike_count = spike_count[:, selected_region]
+
+            print("Spike count shape after filtering:", spike_count.shape)
+
             # Filter out invalid trials
             try:
                 spike_count = spike_count[valid_mask]
