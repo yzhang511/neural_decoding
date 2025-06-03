@@ -63,33 +63,60 @@ def extract_spikes(session, session_id):
     return spikes, units
 
 
-def extract_rewards(session, delta=1.):
+def extract_rewards(session):
+
+    stimulus_presentations = session.stimulus_presentations
+    stim_blocks = stimulus_presentations.stimulus_block.values
+    stim_block_len = [sum(stim_blocks == stim) for stim in set(stim_blocks)]
+    chosen_stim_block = np.unique(stim_blocks)[np.argmax(stim_block_len)]
+    print(f"Chosen stimulus block {chosen_stim_block} with length {np.max(stim_block_len)}")
+
+    mask = stimulus_presentations.stimulus_block == chosen_stim_block
+    stim_block_start = stimulus_presentations.start_time[mask]
+    stim_block_end = stimulus_presentations.end_time[mask]
+    print(f"Chosen stimulus block start from {stim_block_start.min()} to {stim_block_end.max()}")
 
     licks = session.licks
     licks_timestamps = licks.timestamps.values.astype(np.float32)
 
-    start_times, end_times, orientations = [], [], []
-    for lick in licks_timestamps:
-        # 1. Orientation 1 interval: [lick - delta, lick + delta]
-        start_times.append(round(lick - delta, 2))
-        end_times.append(round(lick + delta, 2))
-        orientations.append(1)
+    print(licks_timestamps)
+    min_duration = np.min(np.diff(licks_timestamps))
+    max_duration = np.max(np.diff(licks_timestamps))
+    print(f"Min & Max lick duration: {min_duration:.3f} & {max_duration:.3f} seconds")
 
-        # 2. Orientation 0 intervals from [lick + 0.01, lick + delta + 0.01) in steps of delta
-        start = round(lick + 0.01, 2)
-        while start + 1. <= lick + delta + 0.01:
-            start_times.append(round(start, 2))
-            end_times.append(round(start + delta, 2))
-            orientations.append(0)
-            start = round(start + delta, 2)
+    start_time = np.floor(licks_timestamps.min())  
+    end_time = np.ceil(licks_timestamps.max())    
 
-    orientations = np.array(orientations, dtype=np.int32)
-    start_times = np.array(start_times, dtype=np.float32)
-    end_times = np.array(end_times, dtype=np.float32)
+    def count_consecutive_runs(arr):
+        """Returns total number of runs of 1s and 0s"""
+        return np.sum(arr[1:] != arr[:-1])
+
+    # Try multiple bin sizes and pick one with fewest transitions (most consecutive 1s and 0s)
+    bin_sizes = np.linspace(min_duration, 2.0, 50)  # try from min gap up to 2 second
+    best_score = float('inf')
+    best_bin_size = None
+    best_binary = None
+
+    for bs in bin_sizes:
+        bins = np.arange(start_time, end_time + bs, bs)
+        idx = np.digitize(licks_timestamps, bins)
+        binary = np.zeros(len(bins))
+        binary[np.unique(idx)] = 1
+        score = count_consecutive_runs(binary)
+        
+        if score < best_score:
+            best_bins = bins
+            best_score = score
+            best_bin_size = bs
+            best_binary = binary
+    print("Best bin size for max consecutive 1s and 0s:", best_bin_size)
+
+    orientations = np.array(best_binary, dtype=np.int32)
+    start_times = np.array(bins[:-1], dtype=np.float32)
+    end_times = np.array(bins[1:], dtype=np.float32)
     output_timestamps = (
         start_times + (end_times - start_times) / 2
     )
-
     print(output_timestamps)
     print(orientations)
 
@@ -99,6 +126,7 @@ def extract_rewards(session, delta=1.):
         "orientation": orientations,  # (N,)
         "timestamps": output_timestamps,  # (N,)
     }
+
 
 def extract_running_speed(session):
     running_speed_dict = {}

@@ -25,13 +25,13 @@ from utils.sweep import tune_decoder
 from utils.utils import set_seed
 from utils.config import config_from_kwargs, update_config
 
-BINSIZE = 0.01
+BINSIZE = 0.02
 REGRESSION = ["running_speed", "gaze", "pupil"]
 CLASSIFICATION = ["gabors", "static_gratings", "drifting_gratings", "flashes", "rewards"]
 LENGTH_LOOKUP = {
     "flashes": 0.2,
     "gabors": 0.2, 
-    "rewards": 0.2,
+    "rewards": 2.,
     "static_gratings": 0.2, 
     "drifting_gratings": 1., 
     "running_speed": 1., 
@@ -172,7 +172,7 @@ all_preds_ordered = np.zeros_like(all_y)
 all_probs_ordered = np.zeros((len(all_y), OUTPUT_SIZE_LOOKUP[target])) if target in CLASSIFICATION else None
 all_ys_ordered = np.zeros_like(all_y)
 
-all_x, all_y = all_x[:1000], all_y[:1000]
+all_x, all_y = all_x[:500], all_y[:500]
 
 # Perform 5-fold CV
 for fold, (train_idx, test_idx) in enumerate(kf.split(all_x)):

@@ -233,11 +233,15 @@ class BaseDataset(Dataset):
                 timestamps = session_dict["data"][target]["timestamps"]
                 behavior = session_dict["data"][target][target_name]
                 mask = np.any((timestamps[:, None] >= start) & (timestamps[:, None] < end), axis=1)
-                behavior = behavior[mask]
+                try:
+                    behavior = behavior[mask]
+                except:
+                    behavior = behavior[:len(mask)]
                 valid_mask = ~np.isnan(behavior)
             else:
                 raise ValueError(f"Target {target} not supported.")
 
+            binsize = 0.02
             spike_count = bin_spike_count(
                 session_dict["data"]["spikes"], 
                 session_dict["data"]["units"]["unit_index"], 
@@ -247,18 +251,8 @@ class BaseDataset(Dataset):
                 length=length,
                 n_workers=n_workers
             )
-
-            print("Spike count shape before filtering:", spike_count.shape)
-
-            region_index = np.array(session_dict["data"]["units"]["region_index"]) 
-            if "CA1" in set(region_index):
-                selected_region = region_index == "CA1"
-            else:
-                selected_region = region_index == "CA3"
-            spike_count = spike_count[:, selected_region]
-
-            print("Spike count shape after filtering:", spike_count.shape)
-
+            print("spike_count shape: ", spike_count.shape)
+            
             # Filter out invalid trials
             try:
                 spike_count = spike_count[valid_mask]
