@@ -55,7 +55,10 @@ def load_spiking_data(one, pid, compute_metrics=False, qc=None, **kwargs):
     eid = kwargs.pop('eid', '')
     pname = kwargs.pop('pname', '')
     spike_loader = SpikeSortingLoader(pid=pid, one=one, eid=eid, pname=pname)
-    sampling_freq = spike_loader.raw_electrophysiology(band="ap", stream=True).fs
+    try:
+        sampling_freq = spike_loader.raw_electrophysiology(band="ap", stream=True).fs
+    except Exception:
+        sampling_freq = 30000.0
     
     spikes, clusters, channels = spike_loader.load_spike_sorting()
     clusters_labeled = SpikeSortingLoader.merge_clusters(
@@ -795,3 +798,4 @@ def align_spike_behavior(binned_spikes, binned_behaviors, beh_names, trials_mask
     
     return aligned_binned_spikes, aligned_binned_behaviors
 
+ 
